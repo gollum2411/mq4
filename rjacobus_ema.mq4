@@ -1,8 +1,12 @@
 #include <stdlib.mqh>
 
+#include "rjacobus.mqh"
+
 #property copyright "Roberto Jacobus"
 #property link      "github.com/gollum2411"
 #property version   "1.00"
+
+const int MAGIC = 0x15ac;
 
 enum EmaPeriods {
     EMA_10 = 10,
@@ -22,7 +26,9 @@ enum SmaPeriods {
 
 enum AdxPeriods {
     ADX_10 = 10,
-    ADX_20 = 20
+    ADX_20 = 20,
+    ADX_50 = 50,
+    ADX_100 = 100
 };
 
 enum direction {
@@ -34,7 +40,6 @@ input double    StopToCandleFactor = 1.0;
 input double    TPFactor = 2;
 input bool      UseTrailingStop = true;
 input bool      ExitWhenCloseBeyondSma = false;
-input bool      AllowSimultaneousOrders = false;
 input int       MaxSimultaneousOrders = 10;
 input double    MinimumLots = 0.01;
 
@@ -46,18 +51,18 @@ double lastBid;
 double lastAsk;
 direction LAST_DIRECTION;
 
-void buy(double stop) {
+void buy(double stop, string comment="") {
     double volume = NormalizeDouble(((AccountFreeMargin()/100) * 1) /1000.0,2);
     volume = (volume < MinimumLots ? MinimumLots : volume);
-    OrderSend(Symbol(), OP_BUY, volume, Ask, 3, stop, Bid + (MathAbs(Bid - stop)) * TPFactor, "FUCK YOU JESUS", 666);
-    Print(ErrorDescription(GetLastError()));
+    double target = Bid + TPFactor * MathAbs(Bid - stop);
+    buy(comment, MAGIC, stop, target, volume);
 }
 
-void sell(double stop) {
+void sell(double stop, string comment="") {
     double volume = NormalizeDouble(((AccountFreeMargin()/100) * 1) /1000.0,2);
     volume = (volume < MinimumLots ? MinimumLots : volume);
-    OrderSend(Symbol(), OP_SELL, volume, Bid, 3, stop, Ask - (MathAbs(Ask - stop)) * TPFactor, "FUCK YOU JESUS", 666);
-    Print(ErrorDescription(GetLastError()));
+    double target = Ask - TPFactor * (MathAbs(Ask - stop));
+    sell(comment, MAGIC, stop, target, volume);
 }
 
 double getEMA() {
@@ -72,6 +77,12 @@ double getADX() {
     return iADX(NULL, 0, AdxPeriod, PRICE_CLOSE, MODE_MAIN, 0);
 }
 
+void getDMI(double &plus, double &minus) {
+    plus = iADX(NULL, 0, AdxPeriod, PRICE_CLOSE, MODE_PLUSDI, 0);
+    minus = iADX(NULL, 0, AdxPeriod, PRICE_CLOSE, MODE_MINUSDI, 0);
+    return;
+}
+
 void manageOrders() {
     if (!ExitWhenCloseBeyondSma) {
         return;
@@ -83,13 +94,13 @@ void manageOrders() {
             continue;
         }
         if (OrderType() == OP_BUY) {
-            if (Close[1] < getEMA()) {
+            if (Close[1] < getSMA()) {
                 OrderClose(OrderTicket(), OrderLots(), Bid, 3, Red);
             }
             return;
         }
 
-        if (Close[1] > getEMA()) {
+        if (Close[1] > getSMA()) {
             OrderClose(OrderTicket(), OrderLots(), Ask, 3, Red);
         }
     }
@@ -130,102 +141,71 @@ direction getDirection() {
     return getEMA() > getSMA() ? BUY : SELL;
 }
 
-enum State {
-    StateStart,
-    StateWaitForEmaTouch
-};
-
-string stateToString(State s) {
-    switch(s) {
-    case StateStart:
-        return "START";
-    case StateWaitForEmaTouch:
-        return "WAIT_FOR_EMA_TOUCH";
-    default:
-        return "STRANGE_STATE";
-    }
-}
-
-State STATE = StateWaitForEmaTouch;
-
 void OnTick() {
-    Comment(stateToString(STATE));
-    if(EmaPeriod >= int(SmaPeriod)) {
+    Comment("rjacobus_ema " + Symbol());
+    //Invalid conditions
+    if(EmaPeriod >= int(SmaPeriod)){
         return;
     }
 
-    if (AdxPeriod > int(EmaPeriod)) {
+    if (Volume[0] > 1) {
         return;
     }
 
+    trailStop();
+    manageOrders();
 
-    for( ;; ) {
-        if (Volume[0] > 1) {
-            break;
-        }
-
-        trailStop();
-        manageOrders();
-        int orderCount = OrdersTotal();
-
-        if ((orderCount > 1 && !AllowSimultaneousOrders) ||
-            (orderCount >= MaxSimultaneousOrders)) {
-            break;
-        }
-
-        double high = High[1];
-        double low = Low[1];
-        double open = Open[1];
-        double close = Close[1];
-
-        bool bullish = open > close;
-        bool bearish = ! bullish;
-
-        double ema = getEMA();
-        double sma = getSMA();
-
-        double stop;
-        direction dir = getDirection();
-
-        double adx = getADX();
-        Print("adx = ", adx);
-        if (adx < 30) {
-            break;
-        }
-
-        switch(STATE) {
-        case StateStart:
-            //Wait for EMA cross
-            if (dir != LAST_DIRECTION) {
-                STATE = StateWaitForEmaTouch;
-            }
-            break;
-
-        case StateWaitForEmaTouch:
-            if (bullish && dir == SELL && (
-               (high > ema && close < ema) ||
-               (close > ema && close < sma))) {
-                stop = close + StopToCandleFactor * (high - low);
-                sell(stop);
-            }
-
-            if (bearish && dir == BUY && (
-               (low < ema && close > ema) ||
-               (close < ema && close > sma))) {
-                stop = close - StopToCandleFactor * (high - low);
-                buy(stop);
-           }
-
-           if (dir != LAST_DIRECTION) {
-                STATE = StateStart;
-           }
-
-           break;
-        }
-
-        break;
+    if (ordersForSymbol(Symbol()) >= MaxSimultaneousOrders) {
+        return;
     }
-    lastBid = Bid;
-    lastAsk = Ask;
-    LAST_DIRECTION = dir;
+
+    //Latest candle
+    Candle candle = newCandle(1);
+
+    double ema = getEMA();
+    double sma = getSMA();
+
+    direction dir = getDirection();
+
+    double adx = getADX();
+    if (adx < 30) {
+        return;
+    }
+
+    double stop;
+    double spread = Ask - Bid;
+    if (dir == BUY) {
+        stop = Bid - StopToCandleFactor * MathAbs(candle.high - candle.low) - spread;
+
+        if (candle.isBullish) {
+            if (candle.close > ema &&
+               (candle.low < ema || candle.open < ema)) {
+                buy(stop, "Buy bullish candle");
+            }
+        }
+
+        if (candle.isBearish) {
+            if (candle.low < ema && candle.close > ema) {
+                stop = candle.close + StopToCandleFactor * (candle.high - candle.low);
+                buy(stop, "Buy bearish candle");
+            }
+        }
+    }
+
+    if (dir == SELL) {
+        stop = Ask + StopToCandleFactor * MathAbs(candle.high - candle.low) + spread;
+        if (candle.isBullish) {
+            if (candle.high > ema && candle.close < ema) {
+                sell(stop, "Sell bullish candle");
+            }
+        }
+
+        if (candle.isBearish) {
+            if (candle.close < ema &&
+               (candle.high > ema || candle.open > ema)) {
+
+               sell(stop, "Sell bearish candle");
+            }
+        }
+    }
 }
