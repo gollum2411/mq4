@@ -52,9 +52,13 @@ void sell(double stop, string comment="") {
 }
 
 EMAs getEMAs() {
-    double fast = iMA(NULL, 0, FastEma, 0, MODE_EMA, PRICE_CLOSE, 0);
-    double mid = iMA(NULL, 0, MidEma, 0, MODE_EMA, PRICE_CLOSE, 0);
-    double slow = iMA(NULL, 0, SlowEma, 0, MODE_EMA, PRICE_CLOSE, 0);
+    return getEMAsShift(0);
+}
+
+EMAs getEMAsShift(int shift) {
+    double fast = iMA(NULL, 0, FastEma, 0, MODE_EMA, PRICE_CLOSE, shift);
+    double mid = iMA(NULL, 0, MidEma, 0, MODE_EMA, PRICE_CLOSE, shift);
+    double slow = iMA(NULL, 0, SlowEma, 0, MODE_EMA, PRICE_CLOSE, shift);
     return newEMAs(fast, mid, slow);
 }
 
@@ -93,23 +97,42 @@ void manageOrders() {
     }
 }
 
-void OnTick() {
-    Comment("rjacobus_3ema " + Symbol());
-    //Invalid conditions
-    if (FastEma >= MidEma || MidEma >= SlowEma) {
-        return;
+void checkCrosses() {
+    EMAs prev = getEMAsShift(1);
+    EMAs curr = getEMAsShift(0);
+    Candle candle = newCandle(1);
+    double spread = Ask - Bid;
+    double stop;
+    bool fastMidCross, fastSlowCross, midSlowCross;
+
+    //Bullish cases
+    {
+        stop = Bid - StopToCandleFactor * MathAbs(candle.high - candle.low) - spread;
+        fastMidCross = curr.fast > curr.mid && prev.fast < prev.mid;
+        fastSlowCross = curr.fast > curr.slow && prev.fast < prev.slow;
+        midSlowCross = curr.mid > curr.slow && prev.mid < prev.slow;
+
+        if (fastMidCross || fastSlowCross || midSlowCross) {
+            buy(stop, "buy cross");
+            return;
+        }
     }
 
-    if (Volume[0] > 1) {
-        return;
+    {
+        //Bearish cases
+        stop = Ask + StopToCandleFactor * MathAbs(candle.high - candle.low) + spread;
+        fastMidCross = curr.fast < curr.mid && prev.fast > prev.mid;
+        fastSlowCross = curr.fast < curr.slow && prev.fast > prev.slow;
+        midSlowCross = curr.mid < curr.slow && prev.mid > prev.slow;
+
+        if (fastMidCross || fastSlowCross || midSlowCross) {
+            sell(stop, "sell cross");
+            return;
+        }
     }
+}
 
-    manageOrders();
-
-    if (ordersForSymbol(Symbol()) >= MaxSimultaneousOrders) {
-        return;
-    }
-
+void checkPullbacks() {
     EMAs emas = getEMAs();
     Candle candle = newCandle(1);
     if (Volume[0] > 1) {
@@ -166,6 +189,28 @@ void OnTick() {
 
         return;
     }
+
+}
+
+void OnTick() {
+    Comment("rjacobus_3ema " + Symbol());
+    //Invalid conditions
+    if (FastEma >= MidEma || MidEma >= SlowEma) {
+        return;
+    }
+
+    if (Volume[0] > 1) {
+        return;
+    }
+
+    manageOrders();
+
+    if (ordersForSymbol(Symbol()) >= MaxSimultaneousOrders) {
+        return;
+    }
+
+    checkCrosses();
+    checkPullbacks();
 }
 
 
