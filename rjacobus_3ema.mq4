@@ -17,6 +17,9 @@ input int FastEma = 10;
 input int MidEma = 20;
 input int SlowEma = 50;
 
+//Glacial-slow SMA
+const int GlacialSma = 200;
+
 input double    StopToCandleFactor = 1.0;
 input double    TPFactor = 2;
 input int       MaxSimultaneousOrders = 10;
@@ -41,6 +44,8 @@ void buy(double stop, string comment="") {
     double volume = NormalizeDouble(((AccountFreeMargin()/100) * 1) /1000.0,2);
     volume = (volume < MinimumLots ? MinimumLots : volume);
     double target = Bid + TPFactor * MathAbs(Bid - stop);
+    if (!isBuyAllowed())
+        return;
     buy(comment, MAGIC, stop, target, volume);
 }
 
@@ -48,6 +53,8 @@ void sell(double stop, string comment="") {
     double volume = NormalizeDouble(((AccountFreeMargin()/100) * 1) /1000.0,2);
     volume = (volume < MinimumLots ? MinimumLots : volume);
     double target = Ask - TPFactor * (MathAbs(Ask - stop));
+    if (!isSellAllowed())
+        return;
     sell(comment, MAGIC, stop, target, volume);
 }
 
@@ -62,13 +69,8 @@ EMAs getEMAsShift(int shift) {
     return newEMAs(fast, mid, slow);
 }
 
-direction getDirection() {
-    double fast, mid, slow;
-    EMAs emas = getEMAs();
-    if (fast > slow)
-        return BUY;
-
-    return SELL;
+double getGlacialSma() {
+    return iMA(NULL, 0, GlacialSma, 0, MODE_SMA, PRICE_CLOSE, 0);
 }
 
 void manageOrders() {
@@ -95,6 +97,20 @@ void manageOrders() {
             OrderClose(OrderTicket(), OrderLots(), Ask, 3, Red);
         }
     }
+}
+
+bool isBuyAllowed() {
+    double glacial = getGlacialSma();
+    EMAs emas = getEMAs();
+    return Ask > glacial && emas.fast > glacial &&
+           emas.mid > glacial && emas.slow > glacial;
+}
+
+bool isSellAllowed() {
+    double glacial = getGlacialSma();
+    EMAs emas = getEMAs();
+    return Bid < glacial && emas.fast < glacial &&
+           emas.mid < glacial && emas.slow < glacial;
 }
 
 void checkCrosses() {
@@ -139,12 +155,7 @@ void checkPullbacks() {
         return;
     }
 
-    direction dir = getDirection();
     if (emas.fast > emas.mid && emas.mid > emas.slow) {
-        if (emas.mid < emas.slow) {
-            return;
-        }
-
         if (candle.isBearish)
             return;
         double spread = Ask - Bid;
@@ -166,10 +177,6 @@ void checkPullbacks() {
     }
 
     if (emas.fast < emas.mid && emas.mid < emas.slow) {
-        if (emas.mid > emas.slow) {
-            return;
-        }
-
         stop = Ask + StopToCandleFactor * MathAbs(candle.high - candle.low) + spread;
 
         if (candle.isBullish)
