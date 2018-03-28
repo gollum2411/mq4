@@ -155,7 +155,7 @@ void checkPullbacks() {
         return;
     }
 
-    if (emas.fast > emas.mid && emas.mid > emas.slow) {
+    if (emas.fast > emas.slow) {
         if (candle.isBearish)
             return;
         double spread = Ask - Bid;
@@ -167,16 +167,22 @@ void checkPullbacks() {
 
         if (supportedByFast) {
             buy(stop, "Buy fast EMA support");
-        } else if (supportedByMid) {
-            buy(stop, "Buy mid EMA support");
-        } else if (supportBySlow) {
-            buy(stop, "Buy slow EMA support");
+            return;
         }
 
+        if (supportedByMid) {
+            buy(stop, "Buy mid EMA support");
+            return;
+        }
+
+        if (supportBySlow) {
+            buy(stop, "Buy slow EMA support");
+            return;
+        }
         return;
     }
 
-    if (emas.fast < emas.mid && emas.mid < emas.slow) {
+    if (emas.fast < emas.slow) {
         stop = Ask + StopToCandleFactor * MathAbs(candle.high - candle.low) + spread;
 
         if (candle.isBullish)
@@ -188,15 +194,20 @@ void checkPullbacks() {
 
         if (resistedByFast) {
             sell(stop, "Sell fast EMA resistance");
-        } else if (resistedByMid) {
-            sell(stop, "Sell mid EMA resistance");
-        } else if (resistedBySlow) {
-            sell(stop, "Sell slow EMA resistance");
+            return;
         }
 
+        if (resistedByMid) {
+            sell(stop, "Sell mid EMA resistance");
+            return;
+        }
+
+        if (resistedBySlow) {
+            sell(stop, "Sell slow EMA resistance");
+            return;
+        }
         return;
     }
-
 }
 
 void OnTick() {
