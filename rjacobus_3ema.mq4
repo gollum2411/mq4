@@ -74,10 +74,7 @@ double getGlacialSma() {
 }
 
 void manageOrders() {
-    if (!CloseWhenFastMidCross) {
-        return;
-    }
-
+    double glacial = getGlacialSma();
     for(int order = 0; order < OrdersTotal(); order++) {
         OrderSelect(order, SELECT_BY_POS);
         if (OrderSymbol() != Symbol() || OrderMagicNumber() != MAGIC) {
@@ -87,13 +84,15 @@ void manageOrders() {
         EMAs emas = getEMAs();
 
         if (OrderType() == OP_BUY) {
-            if (emas.fast < emas.mid) {
+            if (emas.slow < glacial) {
                 OrderClose(OrderTicket(), OrderLots(), Bid, 3, Red);
+                Print("Closing long positions, emas.slow < glacial");
             }
             continue;
         }
 
-        if (emas.fast > emas.mid) {
+        if (emas.slow > glacial) {
+            Print("Closing short positions, emas.slow > glacial");
             OrderClose(OrderTicket(), OrderLots(), Ask, 3, Red);
         }
     }
