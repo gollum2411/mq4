@@ -91,6 +91,7 @@ void manageOrders() {
         if (OrderType() == OP_BUY) {
             if (k1 >= 70 && k1 > d1 && k0 < d0) {
                 Print("Closing longs, stoch crossunder");
+                SendNotification(Symbol() + ": Closing longs, stoch crossunder");
                 OrderClose(OrderTicket(), OrderLots(), Bid, 3, Red);
                 continue;
             }
@@ -100,6 +101,7 @@ void manageOrders() {
         if (OrderType() == OP_SELL) {
             if (k1 <= 30 && k1 < d1 && k0 > d1) {
                 Print("Closing shorts, stoch crossover");
+                SendNotification(Symbol() + ": Closing short, stoch crossover");
                 OrderClose(OrderTicket(), OrderLots(), Ask, 3, Red);
                 continue;
             }
