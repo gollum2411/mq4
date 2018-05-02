@@ -15,33 +15,57 @@ enum direction {
 
 //Glacial-slow SMA
 input const int GlacialSma = 200;
+input const int FastSma = 20;
 
-input double    StopToCandleFactor = 1.0;
+input double    StopToCandleFactor = 2.0;
+input double    EmaToSwingStopFactor = 2.0;
 input double    TPFactor = 2;
 input int       MaxSimultaneousOrders = 10;
 input double    MinimumLots = 0.01;
 
 void buy(double stop, string comment="") {
-    double volume = NormalizeDouble(((AccountFreeMargin()/100) * 1) /1000.0,2);
-    volume = (volume < MinimumLots ? MinimumLots : volume);
-    double target = Bid + TPFactor * MathAbs(Bid - stop);
     if (!isBuyAllowed()) {
         Print("Buy not allowed");
         return;
     }
-    volume = _getVolume(Ask, stop);
+
+    double spread = Ask - Bid;
+    double stopInPips = (Ask - stop) / normalizeDigits();
+    if (stopInPips < 10) {
+        Print("Aborting buy, stop too narrow");
+        return;
+        stop = Ask - 10*normalizeDigits() - spread;
+        Print("buy");
+        Print("modified stop: ", stop);
+        Print("modified stop in pips: ", (Ask - stop) / normalizeDigits());
+    }
+
+    double target = Bid + TPFactor * MathAbs(Bid - stop);
+    double volume = _getVolume(Ask, stop);
+    Print("abs(entry - stop) = ", MathAbs(Ask - stop) / normalizeDigits());
     buy(comment, MAGIC, stop, target, volume);
 }
 
 void sell(double stop, string comment="") {
-    double volume = NormalizeDouble(((AccountFreeMargin()/100) * 1) /1000.0,2);
-    volume = (volume < MinimumLots ? MinimumLots : volume);
-    double target = Ask - TPFactor * (MathAbs(Ask - stop));
     if (!isSellAllowed()) {
         Print("Sell not allowed");
         return;
     }
-    volume = _getVolume(Bid, stop);
+
+    double spread = Ask - Bid;
+    double stopInPips = (stop - Bid) / normalizeDigits();
+    if (stopInPips < 10) {
+        Print("Aborting sell, stop too narrow");
+        return;
+        stop = Bid + 10*normalizeDigits() + spread;
+        Print("sell");
+        Print("modified stop: ", stop);
+        Print("modified stop in pips: ", (stop - Bid) / normalizeDigits());
+    }
+
+    double target = Ask - TPFactor * (MathAbs(Ask - stop));
+    double volume = _getVolume(Bid, stop);
+    Print("abs(entry - stop) = ", MathAbs(stop - Bid) / normalizeDigits());
     sell(comment, MAGIC, stop, target, volume);
 }
 
@@ -76,38 +100,12 @@ double getGlacialSma() {
     return iMA(NULL, PERIOD_D1, GlacialSma, 0, MODE_SMA, PRICE_CLOSE, 0);
 }
 
-void manageOrders() {
-    double k0, d0, k1, d1;
+double getFastSma() {
+    return iMA(NULL, Period(), FastSma, 0, MODE_SMA, PRICE_CLOSE, 0);
+}
 
-    getStochShift(k0, d0, 0);
-    getStochShift(k1, d1, 1);
-
-    for(int order = 0; order < OrdersTotal(); order++) {
-        OrderSelect(order, SELECT_BY_POS);
-        if (OrderSymbol() != Symbol() || OrderMagicNumber() != MAGIC) {
-            continue;
-        }
-
-        if (OrderType() == OP_BUY) {
-            if (k1 >= 70 && k1 > d1 && k0 < d0) {
-                Print("Closing longs, stoch crossunder");
-                SendNotification(Symbol() + ": Closing longs, stoch crossunder");
-                OrderClose(OrderTicket(), OrderLots(), Bid, 3, Red);
-                continue;
-            }
-            continue;
-        }
-
-        if (OrderType() == OP_SELL) {
-            if (k1 <= 30 && k1 < d1 && k0 > d1) {
-                Print("Closing shorts, stoch crossover");
-                SendNotification(Symbol() + ": Closing short, stoch crossover");
-                OrderClose(OrderTicket(), OrderLots(), Ask, 3, Red);
-                continue;
-            }
-            continue;
-        }
-    }
+double getSlowSma() {
+    return iMA(NULL, Period(), 50, 0, MODE_SMA, PRICE_CLOSE, 0);
 }
 
 void getStochShift(double &k, double &d, int shift) {
@@ -125,6 +123,79 @@ bool isSellAllowed() {
     return Bid < glacial;
 }
 
+void placeBuyOrder(string comment) {
+    if (!isBuyAllowed()) {
+        Print("Buy not allowed");
+        return;
+    }
+    double spread = Ask - Bid;
+    double fast = NormalizeDouble(getFastSma(), Digits);
+    double low = getLow();
+    double stop = fast - EmaToSwingStopFactor * (fast - low) - spread;
+    double stopInPips = (fast - low) / normalizeDigits();
+    Print("stop = ", stop);
+    Print("stop in pips = ", stopInPips);
+    if (stopInPips < 10) {
+        Print("aborting order, stop too narrow");
+        return;
+        stop = fast - 10*normalizeDigits() - spread;
+        Print("placeBuyOrder");
+        Print("modified stop: ", stop);
+        Print("modified stop in pips: ", (fast - stop) / normalizeDigits());
+    }
+
+    double target = fast + TPFactor * (fast - low);
+    double volume = _getVolume(fast, stop);
+    Print("abs(entry - stop) = ", MathAbs(fast - stop) / normalizeDigits());
+    int ret = OrderSend(Symbol(), OP_BUYSTOP, volume,
+                        fast, 3, stop, target,
+                        "", MAGIC);
+    if (ret == -1) {
+        SendNotification("Placing buy stop order failed: " + GetLastError());
+    }
+}
+
+void placeSellOrder(string comment) {
+    if (!isSellAllowed()) {
+        Print("Sell not allowed");
+        return;
+    }
+    double spread = Ask - Bid;
+    double fast = NormalizeDouble(getFastSma(), Digits);
+    double high = getHigh();
+    double stop = fast + EmaToSwingStopFactor * (high - fast) + spread;
+    double stopInPips = (high - fast) / normalizeDigits();
+    Print("stop = ", stop);
+    Print("stop in pips = ", stopInPips);
+    if (stopInPips < 10) {
+        Print("aborting order, stop too narrow");
+        return;
+        stop = high + 10*normalizeDigits() + spread;
+        Print("placeSellOrder");
+        Print("modified stop: ", stop);
+        Print("modified stop in pips: ", (stop - fast) / normalizeDigits());
+    }
+
+    double target = fast - TPFactor * (high - fast);
+    double volume = _getVolume(fast, stop);
+    Print("abs(entry - stop) = ", MathAbs(fast - stop) / normalizeDigits());
+    int ret = OrderSend(Symbol(), OP_SELLSTOP, volume,
+                        fast, 3, stop, target,
+                        "", MAGIC);
+    if (ret == -1) {
+        SendNotification("Placing sell stop order failed: " + GetLastError());
+    }
+}
+
+double getHigh() {
+    return High[iHighest(Symbol(), Period(), MODE_HIGH, 5, 0)];
+}
+
+double getLow() {
+    return Low[iLowest(Symbol(), Period(), MODE_LOW, 5, 0)];
+}
+
+
 void checkCrosses() {
     Candle candle = newCandle(1);
     double spread = Ask - Bid;
@@ -137,18 +208,89 @@ void checkCrosses() {
     //bullish
     if (prevK <= 30 && prevD <= 30 && prevK < prevD && currK > currD)
     {
+        if (Ask > getFastSma()) {
+            stop = Bid - StopToCandleFactor * MathAbs(candle.high - candle.low) - spread;
+            buy(stop, "buy stoch cross");
+            return;
+        }
         Print("bullish cross: %k = ", currK, " %%d = ", currD);
-        stop = Bid - StopToCandleFactor * MathAbs(candle.high - candle.low) - spread;
-        buy(stop, "buy stoch cross");
+        placeBuyOrder("Place buy order: stoch cross");
         return;
     }
 
     if (prevK >= 70 && prevD >= 70 && prevK > prevD && currK < currD)
     {
+        if (Bid < getFastSma()) {
+            stop = Ask + StopToCandleFactor * MathAbs(candle.high - candle.low) + spread;
+            sell(stop, "sell stoch cross");
+        }
         Print("bearish cross: %k = ", currK, " %%d = ", currD);
-        stop = Ask + StopToCandleFactor * MathAbs(candle.high - candle.low) + spread;
-        sell(stop, "sell stoch cross");
+        placeSellOrder("Place sell order: stoch cross");
         return;
+    }
+}
+
+void checkPendingOrdersForClose() {
+    Candle candle = newCandle(1);
+    double glacial = getGlacialSma();
+
+    for (int order = OrdersTotal() - 1; order >= 0; order--) {
+        OrderSelect(order, SELECT_BY_POS);
+        if (OrderSymbol() != Symbol()) {
+            continue;
+        }
+
+        if (OrderType() == OP_BUYSTOP && candle.close < glacial) {
+            Print("Cancelling ticket ", OrderTicket());
+            OrderDelete(OrderTicket());
+            continue;
+        }
+
+        if (OrderType() == OP_SELLSTOP && candle.close > glacial) {
+            Print("Cancelling ticket ", OrderTicket());
+            OrderDelete(OrderTicket());
+            continue;
+        }
+    }
+}
+
+void closePendingOrders() {
+    for (int order = OrdersTotal() - 1; order >= 0; order--) {
+        OrderSelect(order, SELECT_BY_POS);
+        int type = OrderType();
+        if (OrderSymbol() != Symbol() ) {
+            continue;
+        }
+
+        if (type != OP_BUYSTOP && type != OP_SELLSTOP) {
+            continue;
+        }
+
+        OrderDelete(OrderTicket());
+    }
+}
+
+void trailOrders() {
+    for (int order = OrdersTotal() - 1; order >= 0; order--) {
+        OrderSelect(order, SELECT_BY_POS);
+        if (OrderSymbol() != Symbol()) {
+            continue;
+        }
+        double R = NormalizeDouble(AccountBalance() * 0.01, 2);
+        int timesR = MathFloor(OrderProfit() / R);
+        PrintFormat("R = %f, Open profit = %f", R, OrderProfit());
+        PrintFormat("Ticket %d is at %dR", OrderTicket(), timesR);
+        if (timesR <= 1) {
+            continue;
+        }
+
+        Print("Moving stop...");
+        double stop = getSlowSma();
+        if ((OrderType() == OP_BUY && stop > OrderStopLoss()) ||
+            (OrderType() == OP_SELL && stop < OrderStopLoss())) {
+            OrderModify(OrderTicket(), OrderOpenPrice(), stop, OrderTakeProfit(), 0, Blue);
+            continue;
+        }
     }
 }
 
@@ -160,9 +302,14 @@ void OnTick() {
         return;
     }
 
-    manageOrders();
+    Print("rjacobus_stoch: ", Symbol(), " alive...");
+    trailOrders();
+
+    checkPendingOrdersForClose();
 
     if (ordersForSymbol(Symbol()) >= MaxSimultaneousOrders) {
+        Print("Max simutaneous orders reached, closing pending orders.");
+        closePendingOrders();
         return;
     }
 
