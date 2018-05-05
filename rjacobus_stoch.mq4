@@ -16,12 +16,12 @@ enum direction {
 //Glacial-slow SMA
 input const int GlacialSma = 200;
 input const int FastSma = 20;
+input const int StopSma = 50;
 
 input double    StopToCandleFactor = 2.0;
 input double    EmaToSwingStopFactor = 2.0;
 input double    TPFactor = 2;
 input int       MaxSimultaneousOrders = 10;
-input double    MinimumLots = 0.01;
 
 void buy(double stop, string comment="") {
     if (!isBuyAllowed()) {
@@ -81,19 +81,55 @@ double normalizeDigits() {
     return 0;
 }
 
-double _getVolume(double price, double stop) {
-    double size = 0;
-    double tickValue = MarketInfo(Symbol(), MODE_TICKVALUE);
+double getExchangeRate() {
+    string symbol = Symbol();
+    if (StringLen(symbol) != 6)
+        return 1;
 
-    if (Digits == 3 || Digits == 5) {
-        tickValue = tickValue * 10;
+    string accCurrency    = AccountCurrency();
+    string baseCurrency   = StringSubstr(symbol, 0, 3);
+    string quotedCurrency = StringSubstr(symbol, 3, 3);
+
+    if (StringCompare(accCurrency, quotedCurrency) == 0) {
+        return 1;
     }
 
+    if (StringCompare(accCurrency, baseCurrency) == 0) {
+        return 1 / MarketInfo(symbol, MODE_BID);
+    }
+
+    string pair = StringConcatenate(accCurrency, quotedCurrency);
+    double rate = iClose(pair, Period(), 1);
+    int lastError = GetLastError();
+
+    if (lastError == 0) {
+        return 1 / rate;
+    }
+
+    pair = StringConcatenate(quotedCurrency, accCurrency);
+    rate = iClose(pair, Period(), 1);
+    lastError = GetLastError();
+
+    if (lastError == 0) {
+        return rate;
+    }
+
+    if (lastError != 0) {
+        Print("getExchangeRate(): iClose error: ", lastError);
+    }
+
+    return 0;
+}
+
+double _getVolume(double price, double stop) {
+
     double stopInPips = MathAbs(price - stop) / normalizeDigits();
-    PrintFormat("stopInPips = %f", stopInPips);
-    size = AccountBalance() * 0.01 / stopInPips*tickValue * 0.01;
-    size = NormalizeDouble(size, 2);
-    return size;
+    // 1% of account
+    double r = NormalizeDouble(AccountBalance() * 0.01, 2);
+    double lotSize = MarketInfo(Symbol(), MODE_LOTSIZE);
+    double pipValue = 0.01 * lotSize * normalizeDigits() * getExchangeRate();
+    double lots = r / (stopInPips * pipValue) * 0.01; //for micro lots
+    return lots;
 }
 
 double getGlacialSma() {
@@ -104,7 +140,7 @@ double getFastSma() {
     return iMA(NULL, Period(), FastSma, 0, MODE_SMA, PRICE_CLOSE, 0);
 }
 
-double getSlowSma() {
+double getStopSma() {
     return iMA(NULL, Period(), 50, 0, MODE_SMA, PRICE_CLOSE, 0);
 }
 
@@ -132,7 +168,7 @@ void placeBuyOrder(string comment) {
     double fast = NormalizeDouble(getFastSma(), Digits);
     double low = getLow();
     double stop = fast - EmaToSwingStopFactor * (fast - low) - spread;
-    double stopInPips = (fast - low) / normalizeDigits();
+    double stopInPips = (fast - stop) / normalizeDigits();
     Print("stop = ", stop);
     Print("stop in pips = ", stopInPips);
     if (stopInPips < 10) {
@@ -144,7 +180,7 @@ void placeBuyOrder(string comment) {
         Print("modified stop in pips: ", (fast - stop) / normalizeDigits());
     }
 
-    double target = fast + TPFactor * (fast - low);
+    double target = fast + TPFactor * MathAbs(fast - stop);
     double volume = _getVolume(fast, stop);
     Print("abs(entry - stop) = ", MathAbs(fast - stop) / normalizeDigits());
     int ret = OrderSend(Symbol(), OP_BUYSTOP, volume,
@@ -164,7 +200,7 @@ void placeSellOrder(string comment) {
     double fast = NormalizeDouble(getFastSma(), Digits);
     double high = getHigh();
     double stop = fast + EmaToSwingStopFactor * (high - fast) + spread;
-    double stopInPips = (high - fast) / normalizeDigits();
+    double stopInPips = (stop - fast) / normalizeDigits();
     Print("stop = ", stop);
     Print("stop in pips = ", stopInPips);
     if (stopInPips < 10) {
@@ -176,7 +212,7 @@ void placeSellOrder(string comment) {
         Print("modified stop in pips: ", (stop - fast) / normalizeDigits());
     }
 
-    double target = fast - TPFactor * (high - fast);
+    double target = fast - TPFactor * MathAbs(stop - fast);
     double volume = _getVolume(fast, stop);
     Print("abs(entry - stop) = ", MathAbs(fast - stop) / normalizeDigits());
     int ret = OrderSend(Symbol(), OP_SELLSTOP, volume,
@@ -285,7 +321,7 @@ void trailOrders() {
         }
 
         Print("Moving stop...");
-        double stop = getSlowSma();
+        double stop = getStopSma();
         if ((OrderType() == OP_BUY && stop > OrderStopLoss()) ||
             (OrderType() == OP_SELL && stop < OrderStopLoss())) {
             OrderModify(OrderTicket(), OrderOpenPrice(), stop, OrderTakeProfit(), 0, Blue);
@@ -302,7 +338,6 @@ void OnTick() {
         return;
     }
 
-    Print("rjacobus_stoch: ", Symbol(), " alive...");
     trailOrders();
 
     checkPendingOrdersForClose();
