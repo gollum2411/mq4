@@ -245,7 +245,8 @@ void checkCrosses() {
     if (prevK <= 30 && prevD <= 30 && prevK < prevD && currK > currD)
     {
         if (Ask > getFastSma()) {
-            stop = Bid - StopToCandleFactor * MathAbs(candle.high - candle.low) - spread;
+            double low = getLow();
+            stop = Bid - EmaToSwingStopFactor * (Bid - low) - spread;
             buy(stop, "buy stoch cross");
             return;
         }
@@ -257,7 +258,8 @@ void checkCrosses() {
     if (prevK >= 70 && prevD >= 70 && prevK > prevD && currK < currD)
     {
         if (Bid < getFastSma()) {
-            stop = Ask + StopToCandleFactor * MathAbs(candle.high - candle.low) + spread;
+            double high = getHigh();
+            stop = Ask + EmaToSwingStopFactor * (high - Ask) + spread;
             sell(stop, "sell stoch cross");
         }
         Print("bearish cross: %k = ", currK, " %%d = ", currD);
