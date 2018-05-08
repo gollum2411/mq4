@@ -100,22 +100,15 @@ double getExchangeRate() {
 
     string pair = StringConcatenate(accCurrency, quotedCurrency);
     double rate = iClose(pair, Period(), 1);
-    int lastError = GetLastError();
-
-    if (lastError == 0) {
+    if (rate != 0) {
         return 1 / rate;
     }
 
     pair = StringConcatenate(quotedCurrency, accCurrency);
     rate = iClose(pair, Period(), 1);
-    lastError = GetLastError();
 
-    if (lastError == 0) {
+    if (rate != 0) {
         return rate;
-    }
-
-    if (lastError != 0) {
-        Print("getExchangeRate(): iClose error: ", lastError);
     }
 
     return 0;
@@ -330,6 +323,10 @@ void trailOrders() {
             continue;
         }
     }
+}
+
+void OnInit() {
+    Print("OnInit: getExchangeRate: ", getExchangeRate());
 }
 
 void OnTick() {
