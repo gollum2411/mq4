@@ -16,7 +16,7 @@ enum direction {
 //Glacial-slow SMA
 input const int GlacialSma = 200;
 input const int FastSma = 20;
-input const int StopSma = 50;
+input const int StopEma = 50;
 
 input double    StopToCandleFactor = 2.0;
 input double    EmaToSwingStopFactor = 2.0;
@@ -133,8 +133,8 @@ double getFastSma() {
     return iMA(NULL, Period(), FastSma, 0, MODE_SMA, PRICE_CLOSE, 0);
 }
 
-double getStopSma() {
-    return iMA(NULL, Period(), 50, 0, MODE_SMA, PRICE_CLOSE, 0);
+double getStopEma() {
+    return iMA(NULL, Period(), StopEma, 0, MODE_EMA, PRICE_CLOSE, 0);
 }
 
 void getStochShift(double &k, double &d, int shift) {
@@ -302,6 +302,10 @@ void closePendingOrders() {
 }
 
 void trailOrders() {
+    //Don't trail
+    if (StopEma == 0) {
+        return;
+    }
     for (int order = OrdersTotal() - 1; order >= 0; order--) {
         OrderSelect(order, SELECT_BY_POS);
         if (OrderSymbol() != Symbol()) {
@@ -316,7 +320,7 @@ void trailOrders() {
         }
 
         Print("Moving stop...");
-        double stop = getStopSma();
+        double stop = getStopEma();
         if ((OrderType() == OP_BUY && stop > OrderStopLoss()) ||
             (OrderType() == OP_SELL && stop < OrderStopLoss())) {
             OrderModify(OrderTicket(), OrderOpenPrice(), stop, OrderTakeProfit(), 0, Blue);
