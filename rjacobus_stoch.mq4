@@ -152,10 +152,10 @@ bool isSellAllowed() {
     return Bid < glacial;
 }
 
-void placeBuyOrder(string comment) {
+int placeBuyOrder(string comment) {
     if (!isBuyAllowed()) {
         Print("Buy not allowed");
-        return;
+        return -1;
     }
     double spread = Ask - Bid;
     double fast = NormalizeDouble(getFastSma(), Digits);
@@ -166,11 +166,7 @@ void placeBuyOrder(string comment) {
     Print("stop in pips = ", stopInPips);
     if (stopInPips < 10) {
         Print("aborting order, stop too narrow");
-        return;
-        stop = fast - 10*normalizeDigits() - spread;
-        Print("placeBuyOrder");
-        Print("modified stop: ", stop);
-        Print("modified stop in pips: ", (fast - stop) / normalizeDigits());
+        return -1;
     }
 
     double target = fast + TPFactor * MathAbs(fast - stop);
@@ -181,13 +177,16 @@ void placeBuyOrder(string comment) {
                         "", MAGIC);
     if (ret == -1) {
         SendNotification("Placing buy stop order failed: " + GetLastError());
+        return -1;
     }
+
+    return ret;
 }
 
-void placeSellOrder(string comment) {
+int placeSellOrder(string comment) {
     if (!isSellAllowed()) {
         Print("Sell not allowed");
-        return;
+        return -1;
     }
     double spread = Ask - Bid;
     double fast = NormalizeDouble(getFastSma(), Digits);
@@ -198,11 +197,7 @@ void placeSellOrder(string comment) {
     Print("stop in pips = ", stopInPips);
     if (stopInPips < 10) {
         Print("aborting order, stop too narrow");
-        return;
-        stop = high + 10*normalizeDigits() + spread;
-        Print("placeSellOrder");
-        Print("modified stop: ", stop);
-        Print("modified stop in pips: ", (stop - fast) / normalizeDigits());
+        return -1;
     }
 
     double target = fast - TPFactor * MathAbs(stop - fast);
@@ -213,7 +208,10 @@ void placeSellOrder(string comment) {
                         "", MAGIC);
     if (ret == -1) {
         SendNotification("Placing sell stop order failed: " + GetLastError());
+        return -1;
     }
+
+    return ret;
 }
 
 double getHigh() {
@@ -229,6 +227,7 @@ void checkCrosses() {
     Candle candle = newCandle(1);
     double spread = Ask - Bid;
     double stop;
+    int ticket;
 
     double currK, currD, prevK, prevD;
     getStochShift(currK, currD, 0);
@@ -244,7 +243,12 @@ void checkCrosses() {
             return;
         }
         Print("bullish cross: %k = ", currK, " %%d = ", currD);
-        placeBuyOrder("Place buy order: stoch cross");
+        ticket = placeBuyOrder("Place buy order: stoch cross");
+        if (ticket == -1) {
+            return;
+        }
+
+        closePendingOrdersExcept(ticket);
         return;
     }
 
@@ -256,7 +260,12 @@ void checkCrosses() {
             sell(stop, "sell stoch cross");
         }
         Print("bearish cross: %k = ", currK, " %%d = ", currD);
-        placeSellOrder("Place sell order: stoch cross");
+        ticket = placeSellOrder("Place sell order: stoch cross");
+        if (ticket == -1) {
+            return;
+        }
+
+        closePendingOrdersExcept(ticket);
         return;
     }
 }
@@ -301,6 +310,23 @@ void closePendingOrders() {
     }
 }
 
+void closePendingOrdersExcept(int ticket) {
+    for (int order = OrdersTotal() - 1; order >= 0; order--) {
+        OrderSelect(order, SELECT_BY_POS);
+        int type = OrderType();
+        if (OrderSymbol() != Symbol() || OrderTicket() == ticket ) {
+            continue;
+        }
+
+        if (type != OP_BUYSTOP && type != OP_SELLSTOP) {
+            continue;
+        }
+
+        OrderDelete(OrderTicket());
+    }
+}
+
+
 void trailOrders() {
     //Don't trail
     if (StopEma == 0) {
@@ -308,9 +334,15 @@ void trailOrders() {
     }
     for (int order = OrdersTotal() - 1; order >= 0; order--) {
         OrderSelect(order, SELECT_BY_POS);
+        int type = OrderType();
         if (OrderSymbol() != Symbol()) {
             continue;
         }
+
+        if (type != OP_BUY && type != OP_SELL) {
+            continue;
+        }
+
         double R = NormalizeDouble(AccountBalance() * 0.01, 2);
         int timesR = MathFloor(OrderProfit() / R);
         PrintFormat("R = %f, Open profit = %f", R, OrderProfit());
@@ -321,8 +353,8 @@ void trailOrders() {
 
         Print("Moving stop...");
         double stop = getStopEma();
-        if ((OrderType() == OP_BUY && stop > OrderStopLoss()) ||
-            (OrderType() == OP_SELL && stop < OrderStopLoss())) {
+        if (type == OP_BUY && stop > OrderStopLoss() ||
+            type == OP_SELL && stop < OrderStopLoss()) {
             OrderModify(OrderTicket(), OrderOpenPrice(), stop, OrderTakeProfit(), 0, Blue);
             continue;
         }

@@ -17,7 +17,7 @@ void sell(string comment, int magic, double stop, double target, double volume) 
 //Returns the number of open orders for sym
 int ordersForSymbol(string sym) {
     int total = 0;
-    for (int order = 0; order < OrdersTotal(); order++) {
+    for (int order = OrdersTotal()-1; order >= 0; order--) {
         OrderSelect(order, SELECT_BY_POS);
         if (OrderSymbol() != sym) {
             continue;
