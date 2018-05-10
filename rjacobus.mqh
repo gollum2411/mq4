@@ -5,20 +5,27 @@ double getVolume(double minVolume, double riskPercentage) {
 }
 
 void buy(string comment, int magic, double stop, double target, double volume) {
-    OrderSend(Symbol(), OP_BUY, volume, Ask, 3, stop, target, comment, magic);
-    Print(ErrorDescription(GetLastError()));
+    int ticket = OrderSend(Symbol(), OP_BUY, volume, Ask, 3, stop, target, comment, magic);
+    if (ticket == -1) {
+        Print(ErrorDescription(GetLastError()));
+    }
 }
 
 void sell(string comment, int magic, double stop, double target, double volume) {
-    OrderSend(Symbol(), OP_SELL, volume, Bid, 3, stop, target, comment, magic);
-    Print(ErrorDescription(GetLastError()));
+    int ticket = OrderSend(Symbol(), OP_SELL, volume, Bid, 3, stop, target, comment, magic);
+    if (ticket == -1) {
+        Print(ErrorDescription(GetLastError()));
+    }
 }
 
 //Returns the number of open orders for sym
 int ordersForSymbol(string sym) {
     int total = 0;
     for (int order = OrdersTotal()-1; order >= 0; order--) {
-        OrderSelect(order, SELECT_BY_POS);
+        if (!OrderSelect(order, SELECT_BY_POS)) {
+            continue;
+        }
+
         if (OrderSymbol() != sym) {
             continue;
         }

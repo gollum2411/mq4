@@ -230,8 +230,8 @@ void checkCrosses() {
     int ticket;
 
     double currK, currD, prevK, prevD;
-    getStochShift(currK, currD, 0);
-    getStochShift(prevK, prevD, 1);
+    getStochShift(currK, currD, 1);
+    getStochShift(prevK, prevD, 2);
 
     //bullish
     if (prevK <= 30 && prevD <= 30 && prevK < prevD && currK > currD)
@@ -275,20 +275,27 @@ void checkPendingOrdersForClose() {
     double glacial = getGlacialSma();
 
     for (int order = OrdersTotal() - 1; order >= 0; order--) {
-        OrderSelect(order, SELECT_BY_POS);
+        if (!OrderSelect(order, SELECT_BY_POS)) {
+            continue;
+        }
+
         if (OrderSymbol() != Symbol()) {
             continue;
         }
 
         if (OrderType() == OP_BUYSTOP && candle.close < glacial) {
             Print("Cancelling ticket ", OrderTicket());
-            OrderDelete(OrderTicket());
+            if (!OrderDelete(OrderTicket())) {
+                SendNotification("failed to delete ticket " + OrderTicket());
+            }
             continue;
         }
 
         if (OrderType() == OP_SELLSTOP && candle.close > glacial) {
             Print("Cancelling ticket ", OrderTicket());
-            OrderDelete(OrderTicket());
+            if (!OrderDelete(OrderTicket())) {
+                SendNotification("failed to delete ticket " + OrderTicket());
+            }
             continue;
         }
     }
@@ -296,7 +303,9 @@ void checkPendingOrdersForClose() {
 
 void closePendingOrders() {
     for (int order = OrdersTotal() - 1; order >= 0; order--) {
-        OrderSelect(order, SELECT_BY_POS);
+        if (!OrderSelect(order, SELECT_BY_POS)) {
+            continue;
+        }
         int type = OrderType();
         if (OrderSymbol() != Symbol() ) {
             continue;
@@ -306,13 +315,17 @@ void closePendingOrders() {
             continue;
         }
 
-        OrderDelete(OrderTicket());
+        if (!OrderDelete(OrderTicket())) {
+            SendNotification("failed to delete ticket " + OrderTicket());
+        }
     }
 }
 
 void closePendingOrdersExcept(int ticket) {
     for (int order = OrdersTotal() - 1; order >= 0; order--) {
-        OrderSelect(order, SELECT_BY_POS);
+        if (!OrderSelect(order, SELECT_BY_POS)) {
+            continue;
+        }
         int type = OrderType();
         if (OrderSymbol() != Symbol() || OrderTicket() == ticket ) {
             continue;
@@ -322,7 +335,9 @@ void closePendingOrdersExcept(int ticket) {
             continue;
         }
 
-        OrderDelete(OrderTicket());
+        if (!OrderDelete(OrderTicket())) {
+            SendNotification("failed to delete ticket " + OrderTicket());
+        }
     }
 }
 
@@ -333,7 +348,9 @@ void trailOrders() {
         return;
     }
     for (int order = OrdersTotal() - 1; order >= 0; order--) {
-        OrderSelect(order, SELECT_BY_POS);
+        if (!OrderSelect(order, SELECT_BY_POS)) {
+            continue;
+        }
         int type = OrderType();
         if (OrderSymbol() != Symbol()) {
             continue;
@@ -353,9 +370,12 @@ void trailOrders() {
 
         Print("Moving stop...");
         double stop = getStopEma();
-        if (type == OP_BUY && stop > OrderStopLoss() ||
-            type == OP_SELL && stop < OrderStopLoss()) {
-            OrderModify(OrderTicket(), OrderOpenPrice(), stop, OrderTakeProfit(), 0, Blue);
+        if ((type == OP_BUY && stop > OrderStopLoss()) ||
+           (type == OP_SELL && stop < OrderStopLoss())) {
+            if (!OrderModify(OrderTicket(), OrderOpenPrice(), stop, OrderTakeProfit(), 0, Blue)) {
+                SendNotification("OrderModify failed for ticket " + OrderTicket() +
+                                 ", error = " + GetLastError());
+            }
             continue;
         }
     }
