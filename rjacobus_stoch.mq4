@@ -23,50 +23,40 @@ input double    EmaToSwingStopFactor = 2.0;
 input double    TPFactor = 2;
 input int       MaxSimultaneousOrders = 10;
 
-void buy(double stop, string comment="") {
+bool buy(double stop, string comment="") {
     if (!isBuyAllowed()) {
         Print("Buy not allowed");
-        return;
+        return false;
     }
 
     double spread = Ask - Bid;
     double stopInPips = (Ask - stop) / normalizeDigits();
     if (stopInPips < 10) {
         Print("Aborting buy, stop too narrow");
-        return;
-        stop = Ask - 10*normalizeDigits() - spread;
-        Print("buy");
-        Print("modified stop: ", stop);
-        Print("modified stop in pips: ", (Ask - stop) / normalizeDigits());
+        return false;
     }
 
     double target = Bid + TPFactor * MathAbs(Bid - stop);
     double volume = _getVolume(Ask, stop);
-    Print("abs(entry - stop) = ", MathAbs(Ask - stop) / normalizeDigits());
-    buy(comment, MAGIC, stop, target, volume);
+    return buy(comment, MAGIC, stop, target, volume);
 }
 
-void sell(double stop, string comment="") {
+bool sell(double stop, string comment="") {
     if (!isSellAllowed()) {
         Print("Sell not allowed");
-        return;
+        return false;
     }
 
     double spread = Ask - Bid;
     double stopInPips = (stop - Bid) / normalizeDigits();
     if (stopInPips < 10) {
         Print("Aborting sell, stop too narrow");
-        return;
-        stop = Bid + 10*normalizeDigits() + spread;
-        Print("sell");
-        Print("modified stop: ", stop);
-        Print("modified stop in pips: ", (stop - Bid) / normalizeDigits());
+        return false;
     }
 
     double target = Ask - TPFactor * (MathAbs(Ask - stop));
     double volume = _getVolume(Bid, stop);
-    Print("abs(entry - stop) = ", MathAbs(stop - Bid) / normalizeDigits());
-    sell(comment, MAGIC, stop, target, volume);
+    return sell(comment, MAGIC, stop, target, volume);
 }
 
 double normalizeDigits() {
@@ -239,7 +229,9 @@ void checkCrosses() {
         if (Ask > getFastSma()) {
             double low = getLow();
             stop = Bid - EmaToSwingStopFactor * (Bid - low) - spread;
-            buy(stop, "buy stoch cross");
+            if (buy(stop, "buy stoch cross")) {
+                closePendingOrders();
+            }
             return;
         }
         Print("bullish cross: %k = ", currK, " %%d = ", currD);
@@ -257,7 +249,9 @@ void checkCrosses() {
         if (Bid < getFastSma()) {
             double high = getHigh();
             stop = Ask + EmaToSwingStopFactor * (high - Ask) + spread;
-            sell(stop, "sell stoch cross");
+            if (sell(stop, "sell stoch cross")) {
+                closePendingOrders();
+            }
         }
         Print("bearish cross: %k = ", currK, " %%d = ", currD);
         ticket = placeSellOrder("Place sell order: stoch cross");
