@@ -36,6 +36,8 @@ bool buy(double stop, string comment="") {
         return false;
     }
 
+    stop -= spread;
+
     double target = Bid + TPFactor * MathAbs(Bid - stop);
     double volume = _getVolume(Ask, stop);
     return buy(comment, MAGIC, stop, target, volume);
@@ -53,6 +55,8 @@ bool sell(double stop, string comment="") {
         Print("Aborting sell, stop too narrow");
         return false;
     }
+
+    stop += spread;
 
     double target = Ask - TPFactor * (MathAbs(Ask - stop));
     double volume = _getVolume(Bid, stop);
@@ -159,6 +163,9 @@ int placeBuyOrder(string comment) {
         return -1;
     }
 
+    //Adjust for spread
+    stop -= spread;
+
     double target = fast + TPFactor * MathAbs(fast - stop);
     double volume = _getVolume(fast, stop);
     Print("abs(entry - stop) = ", MathAbs(fast - stop) / normalizeDigits());
@@ -181,7 +188,7 @@ int placeSellOrder(string comment) {
     double spread = Ask - Bid;
     double fast = NormalizeDouble(getFastSma(), Digits);
     double high = getHigh();
-    double stop = fast + EmaToSwingStopFactor * (high - fast) + spread;
+    double stop = fast + EmaToSwingStopFactor * (high - fast);
     double stopInPips = (stop - fast) / normalizeDigits();
     Print("stop = ", stop);
     Print("stop in pips = ", stopInPips);
@@ -189,6 +196,9 @@ int placeSellOrder(string comment) {
         Print("aborting order, stop too narrow");
         return -1;
     }
+
+    //Adjust for spread
+    stopInPips += spread;
 
     double target = fast - TPFactor * MathAbs(stop - fast);
     double volume = _getVolume(fast, stop);
@@ -228,7 +238,7 @@ void checkCrosses() {
     {
         if (Ask > getFastSma()) {
             double low = getLow();
-            stop = Bid - EmaToSwingStopFactor * (Bid - low) - spread;
+            stop = Bid - EmaToSwingStopFactor * (Bid - low);
             if (buy(stop, "buy stoch cross")) {
                 closePendingOrders();
             }
@@ -248,7 +258,7 @@ void checkCrosses() {
     {
         if (Bid < getFastSma()) {
             double high = getHigh();
-            stop = Ask + EmaToSwingStopFactor * (high - Ask) + spread;
+            stop = Ask + EmaToSwingStopFactor * (high - Ask);
             if (sell(stop, "sell stoch cross")) {
                 closePendingOrders();
             }
