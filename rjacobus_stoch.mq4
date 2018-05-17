@@ -23,6 +23,8 @@ input double    EmaToSwingStopFactor = 2.0;
 input double    TPFactor = 2;
 input int       MaxSimultaneousOrders = 10;
 
+input int       MinimumStopInPips = 15;
+
 bool buy(double stop, string comment="") {
     if (!isBuyAllowed()) {
         Print("Buy not allowed");
@@ -31,7 +33,7 @@ bool buy(double stop, string comment="") {
 
     double spread = Ask - Bid;
     double stopInPips = (Ask - stop) / normalizeDigits();
-    if (stopInPips < 10) {
+    if (stopInPips < MinimumStopInPips) {
         Print("Aborting buy, stop too narrow");
         return false;
     }
@@ -51,7 +53,7 @@ bool sell(double stop, string comment="") {
 
     double spread = Ask - Bid;
     double stopInPips = (stop - Bid) / normalizeDigits();
-    if (stopInPips < 10) {
+    if (stopInPips < MinimumStopInPips) {
         Print("Aborting sell, stop too narrow");
         return false;
     }
@@ -158,7 +160,7 @@ int placeBuyOrder(string comment) {
     double stopInPips = (fast - stop) / normalizeDigits();
     Print("stop = ", stop);
     Print("stop in pips = ", stopInPips);
-    if (stopInPips < 10) {
+    if (stopInPips < MinimumStopInPips) {
         Print("aborting order, stop too narrow");
         return -1;
     }
@@ -192,13 +194,13 @@ int placeSellOrder(string comment) {
     double stopInPips = (stop - fast) / normalizeDigits();
     Print("stop = ", stop);
     Print("stop in pips = ", stopInPips);
-    if (stopInPips < 10) {
+    if (stopInPips < MinimumStopInPips) {
         Print("aborting order, stop too narrow");
         return -1;
     }
 
     //Adjust for spread
-    stopInPips += spread;
+    stop += spread;
 
     double target = fast - TPFactor * MathAbs(stop - fast);
     double volume = _getVolume(fast, stop);
