@@ -25,19 +25,23 @@ input int       MaxSimultaneousOrders = 10;
 
 input int       MinimumStopInPips = 15;
 
+bool isStopValid(double entry, double stop) {
+    double stopInPips = MathAbs(entry - stop) / normalizeDigits();
+    return stopInPips >= MinimumStopInPips;
+}
+
 bool buy(double stop, string comment="") {
     if (!isBuyAllowed()) {
         Print("Buy not allowed");
         return false;
     }
 
-    double spread = Ask - Bid;
-    double stopInPips = (Ask - stop) / normalizeDigits();
-    if (stopInPips < MinimumStopInPips) {
+    if (!isStopValid(Ask, stop)) {
         Print("Aborting buy, stop too narrow");
         return false;
     }
 
+    double spread = Ask - Bid;
     stop -= spread;
 
     double target = Bid + TPFactor * MathAbs(Bid - stop);
@@ -51,13 +55,12 @@ bool sell(double stop, string comment="") {
         return false;
     }
 
-    double spread = Ask - Bid;
-    double stopInPips = (stop - Bid) / normalizeDigits();
-    if (stopInPips < MinimumStopInPips) {
+    if (!isStopValid(Bid, stop)) {
         Print("Aborting sell, stop too narrow");
         return false;
     }
 
+    double spread = Ask - Bid;
     stop += spread;
 
     double target = Ask - TPFactor * (MathAbs(Ask - stop));
@@ -157,10 +160,8 @@ int placeBuyOrder(string comment) {
     double fast = NormalizeDouble(getFastSma(), Digits);
     double low = getLow();
     double stop = fast - EmaToSwingStopFactor * (fast - low) - spread;
-    double stopInPips = (fast - stop) / normalizeDigits();
-    Print("stop = ", stop);
-    Print("stop in pips = ", stopInPips);
-    if (stopInPips < MinimumStopInPips) {
+
+    if (!isStopValid(fast, stop)) {
         Print("aborting order, stop too narrow");
         return -1;
     }
@@ -191,10 +192,8 @@ int placeSellOrder(string comment) {
     double fast = NormalizeDouble(getFastSma(), Digits);
     double high = getHigh();
     double stop = fast + EmaToSwingStopFactor * (high - fast);
-    double stopInPips = (stop - fast) / normalizeDigits();
-    Print("stop = ", stop);
-    Print("stop in pips = ", stopInPips);
-    if (stopInPips < MinimumStopInPips) {
+
+    if (!isStopValid(fast, stop)) {
         Print("aborting order, stop too narrow");
         return -1;
     }
