@@ -2,6 +2,7 @@
 
 #include "rjacobus.mqh"
 
+#property strict
 #property copyright "Roberto Jacobus"
 #property link      "github.com/gollum2411"
 #property version   "1.00"
@@ -14,7 +15,7 @@ enum direction {
 };
 
 //Glacial-slow SMA
-input const int GlacialSma = 200;
+input const int GlacialSma = 0;
 input const int FastSma = 20;
 input const int StopEma = 50;
 
@@ -24,6 +25,9 @@ input double    TPFactor = 2;
 input int       MaxSimultaneousOrders = 10;
 
 input int       MinimumStopInPips = 15;
+input double    MaxSpreadInPips = 3;
+
+input double    RiskPerTrade = 0.01;
 
 bool isStopValid(double entry, double stop) {
     double stopInPips = MathAbs(entry - stop) / normalizeDigits();
@@ -117,7 +121,7 @@ double _getVolume(double price, double stop) {
 
     double stopInPips = MathAbs(price - stop) / normalizeDigits();
     // 1% of account
-    double r = NormalizeDouble(AccountBalance() * 0.01, 2);
+    double r = NormalizeDouble(AccountBalance() * RiskPerTrade, 2);
     double lotSize = MarketInfo(Symbol(), MODE_LOTSIZE);
     double pipValue = 0.01 * lotSize * normalizeDigits() * getExchangeRate();
     double lots = r / (stopInPips * pipValue) * 0.01; //for micro lots
@@ -176,7 +180,7 @@ int placeBuyOrder(string comment) {
                         fast, 3, stop, target,
                         "", MAGIC);
     if (ret == -1) {
-        SendNotification("Placing buy stop order failed: " + GetLastError());
+        SendNotification("Placing buy stop order failed: " + string(GetLastError()));
         return -1;
     }
 
@@ -208,7 +212,7 @@ int placeSellOrder(string comment) {
                         fast, 3, stop, target,
                         "", MAGIC);
     if (ret == -1) {
-        SendNotification("Placing sell stop order failed: " + GetLastError());
+        SendNotification("Placing sell stop order failed: " + string(GetLastError()));
         return -1;
     }
 
@@ -291,7 +295,7 @@ void checkPendingOrdersForClose() {
         if (OrderType() == OP_BUYSTOP && candle.close < glacial) {
             Print("Cancelling ticket ", OrderTicket());
             if (!OrderDelete(OrderTicket())) {
-                SendNotification("failed to delete ticket " + OrderTicket());
+                SendNotification("failed to delete ticket " + string(OrderTicket()));
             }
             continue;
         }
@@ -299,7 +303,7 @@ void checkPendingOrdersForClose() {
         if (OrderType() == OP_SELLSTOP && candle.close > glacial) {
             Print("Cancelling ticket ", OrderTicket());
             if (!OrderDelete(OrderTicket())) {
-                SendNotification("failed to delete ticket " + OrderTicket());
+                SendNotification("failed to delete ticket " + string(OrderTicket()));
             }
             continue;
         }
@@ -321,7 +325,7 @@ void closePendingOrders() {
         }
 
         if (!OrderDelete(OrderTicket())) {
-            SendNotification("failed to delete ticket " + OrderTicket());
+            SendNotification("failed to delete ticket " + string(OrderTicket()));
         }
     }
 }
@@ -341,11 +345,10 @@ void closePendingOrdersExcept(int ticket) {
         }
 
         if (!OrderDelete(OrderTicket())) {
-            SendNotification("failed to delete ticket " + OrderTicket());
+            SendNotification("failed to delete ticket " + string(OrderTicket()));
         }
     }
 }
-
 
 void trailOrders() {
     //Don't trail
@@ -356,6 +359,7 @@ void trailOrders() {
         if (!OrderSelect(order, SELECT_BY_POS)) {
             continue;
         }
+
         int type = OrderType();
         if (OrderSymbol() != Symbol()) {
             continue;
@@ -365,8 +369,9 @@ void trailOrders() {
             continue;
         }
 
-        double R = NormalizeDouble(AccountBalance() * 0.01, 2);
-        int timesR = MathFloor(OrderProfit() / R);
+        double R = NormalizeDouble(AccountBalance() * RiskPerTrade, 2);
+        int timesR = int(MathFloor(OrderProfit() / R));
+        PrintFormat("Stop loss = ", OrderStopLoss(), ", Stop MA = ", getStopEma());
         PrintFormat("R = %f, Open profit = %f", R, OrderProfit());
         PrintFormat("Ticket %d is at %dR", OrderTicket(), timesR);
         if (timesR <= 1) {
@@ -378,23 +383,55 @@ void trailOrders() {
         if ((type == OP_BUY && stop > OrderStopLoss()) ||
            (type == OP_SELL && stop < OrderStopLoss())) {
             if (!OrderModify(OrderTicket(), OrderOpenPrice(), stop, OrderTakeProfit(), 0, Blue)) {
-                SendNotification("OrderModify failed for ticket " + OrderTicket() +
-                                 ", error = " + GetLastError());
+                SendNotification("OrderModify failed for ticket " + string(OrderTicket()) +
+                                 ", error = " + string(GetLastError()));
             }
             continue;
         }
     }
 }
 
-void OnInit() {
+int OnInit() {
     Print("OnInit: getExchangeRate: ", getExchangeRate());
+
+    if (!IsTradeAllowed()) {
+        return 0;
+    }
+
+    if (GlacialSma == 0) {
+        string message = StringFormat("rjacobus_stoch: %s uninitialized. Aborting...", Symbol());
+        SendNotification(message);
+        return -1;
+    }
+
+    string initMessage = StringFormat("rjacobus_stoch: %s: glacialMA=%d fastMA=%d stopMA=%d",
+        Symbol(), GlacialSma, FastSma, StopEma);
+
+    SendNotification(initMessage);
+    return 0;
+}
+
+double getSpreadInPips() {
+    return (Ask - Bid) / normalizeDigits();
+}
+
+bool isNewCandle()
+{
+    static datetime last;
+    datetime curr = Time[0];
+
+    if (curr == last)
+        return false;
+
+    last = curr;
+    return true;
 }
 
 void OnTick() {
     Comment("rjacobus_stoch " + Symbol());
     //Invalid conditions
 
-    if (Volume[0] > 1) {
+    if (!isNewCandle()) {
         return;
     }
 
@@ -407,6 +444,13 @@ void OnTick() {
         closePendingOrders();
         return;
     }
+
+    double spread = getSpreadInPips();
+    if (spread > MaxSpreadInPips) {
+        Print("Aborting, spread too wide: ", spread);
+        return;
+    }
+
 
     checkCrosses();
 }
