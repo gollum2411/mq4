@@ -163,7 +163,7 @@ int placeBuyOrder(string comment) {
     double spread = Ask - Bid;
     double fast = NormalizeDouble(getFastSma(), Digits);
     double low = getLow();
-    double stop = fast - EmaToSwingStopFactor * (fast - low) - spread;
+    double stop = fast - EmaToSwingStopFactor * (fast - low);
 
     if (!isStopValid(fast, stop)) {
         Print("aborting order, stop too narrow");
