@@ -10,12 +10,13 @@
 const int MAGIC = 0x38f9;
 
 enum direction {
+    UNDEFINED,
     BUY,
     SELL
 };
 
 //Glacial-slow SMA
-input const int GlacialSma = 0;
+input const direction Direction = UNDEFINED;
 input const int FastSma = 20;
 input const int StopEma = 50;
 
@@ -28,6 +29,17 @@ input int       MinimumStopInPips = 15;
 input double    MaxSpreadInPips = 3;
 
 input double    RiskPerTrade = 0.01;
+
+string directionToString() {
+    switch(Direction) {
+    case BUY:
+        return "BUY";
+    case SELL:
+        return "SELL";
+    default:
+        return "UNDEFINED";
+    }
+}
 
 bool isStopValid(double entry, double stop) {
     double stopInPips = MathAbs(entry - stop) / normalizeDigits();
@@ -128,10 +140,6 @@ double _getVolume(double price, double stop) {
     return lots;
 }
 
-double getGlacialSma() {
-    return iMA(NULL, PERIOD_D1, GlacialSma, 0, MODE_SMA, PRICE_CLOSE, 0);
-}
-
 double getFastSma() {
     return iMA(NULL, Period(), FastSma, 0, MODE_SMA, PRICE_CLOSE, 0);
 }
@@ -146,13 +154,11 @@ void getStochShift(double &k, double &d, int shift) {
 }
 
 bool isBuyAllowed() {
-    double glacial = getGlacialSma();
-    return Ask > glacial;
+    return Direction == BUY;
 }
 
 bool isSellAllowed() {
-    double glacial = getGlacialSma();
-    return Bid < glacial;
+    return Direction == SELL;
 }
 
 int placeBuyOrder(string comment) {
@@ -239,7 +245,7 @@ void checkCrosses() {
     getStochShift(prevK, prevD, 2);
 
     //bullish
-    if (prevK <= 30 && prevD <= 30 && prevK < prevD && currK > currD)
+    if (prevK <= 20 && prevD <= 20 && prevK < prevD && currK > currD)
     {
         if (Ask > getFastSma()) {
             double low = getLow();
@@ -259,7 +265,7 @@ void checkCrosses() {
         return;
     }
 
-    if (prevK >= 70 && prevD >= 70 && prevK > prevD && currK < currD)
+    if (prevK >= 80 && prevD >= 80 && prevK > prevD && currK < currD)
     {
         if (Bid < getFastSma()) {
             double high = getHigh();
@@ -267,6 +273,7 @@ void checkCrosses() {
             if (sell(stop, "sell stoch cross")) {
                 closePendingOrders();
             }
+            return;
         }
         Print("bearish cross: %k = ", currK, " %%d = ", currD);
         ticket = placeSellOrder("Place sell order: stoch cross");
@@ -276,37 +283,6 @@ void checkCrosses() {
 
         closePendingOrdersExcept(ticket);
         return;
-    }
-}
-
-void checkPendingOrdersForClose() {
-    Candle candle = newCandle(1);
-    double glacial = getGlacialSma();
-
-    for (int order = OrdersTotal() - 1; order >= 0; order--) {
-        if (!OrderSelect(order, SELECT_BY_POS)) {
-            continue;
-        }
-
-        if (OrderSymbol() != Symbol()) {
-            continue;
-        }
-
-        if (OrderType() == OP_BUYSTOP && candle.close < glacial) {
-            Print("Cancelling ticket ", OrderTicket());
-            if (!OrderDelete(OrderTicket())) {
-                SendNotification("failed to delete ticket " + string(OrderTicket()));
-            }
-            continue;
-        }
-
-        if (OrderType() == OP_SELLSTOP && candle.close > glacial) {
-            Print("Cancelling ticket ", OrderTicket());
-            if (!OrderDelete(OrderTicket())) {
-                SendNotification("failed to delete ticket " + string(OrderTicket()));
-            }
-            continue;
-        }
     }
 }
 
@@ -398,14 +374,14 @@ int OnInit() {
         return 0;
     }
 
-    if (GlacialSma == 0) {
+    if (Direction == UNDEFINED) {
         string message = StringFormat("rjacobus_stoch: %s uninitialized. Aborting...", Symbol());
         SendNotification(message);
         return -1;
     }
 
-    string initMessage = StringFormat("rjacobus_stoch: %s: glacialMA=%d fastMA=%d stopMA=%d",
-        Symbol(), GlacialSma, FastSma, StopEma);
+    string initMessage = StringFormat("rjacobus_stoch: %s: direction=%s fastMA=%d stopMA=%d",
+        Symbol(), directionToString(), FastSma, StopEma);
 
     SendNotification(initMessage);
     return 0;
@@ -436,8 +412,6 @@ void OnTick() {
     }
 
     trailOrders();
-
-    checkPendingOrdersForClose();
 
     if (ordersForSymbol(Symbol()) >= MaxSimultaneousOrders) {
         Print("Max simutaneous orders reached, closing pending orders.");
