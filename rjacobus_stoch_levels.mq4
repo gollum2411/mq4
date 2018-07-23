@@ -135,11 +135,13 @@ double getStopSmaFromR(int timesR) {
     switch(timesR) {
     case 1:
         stop = StopSma1R;
+        break;
     case 2:
     default:
         stop = StopSma2R;
+        break;
     }
-    //Regular StopEma
+    Print("getStopSmaFromR: using ", stop, "SMA");
     return iMA(NULL, Period(), stop, 0, MODE_SMA, PRICE_CLOSE, 0);
 }
 
@@ -343,12 +345,12 @@ void trailOrders() {
         double R = NormalizeDouble(AccountBalance() * RiskPerTrade, 2);
         int timesR = int(MathFloor(OrderProfit() / R));
 
-        if (timesR <= 1) {
+        if (timesR < 1) {
             continue;
         }
 
         double stop = getStopSmaFromR(timesR);
-        PrintFormat("Stop loss = ", OrderStopLoss(), ", Stop MA = ", stop);
+        Print("Stop loss = ", OrderStopLoss(), ", Stop MA = ", stop);
         PrintFormat("R = %f, Open profit = %f", R, OrderProfit());
         PrintFormat("Ticket %d is at %dR", OrderTicket(), timesR);
 
@@ -377,8 +379,8 @@ int OnInit() {
         return -1;
     }
 
-    string initMessage = StringFormat("rjacobus_stoch_levels: %s: BuyAbove=%f SellBelow=%f fastMA=%d stopMA=%d",
-        Symbol(), BuyAbove, SellBelow, FastSma, StopSma2R);
+    string initMessage = StringFormat("rjacobus_stoch_levels: %s: BuyAbove=%f SellBelow=%f fastMA=%d StopSma1R=%d StopSma2R=%d",
+        Symbol(), BuyAbove, SellBelow, FastSma, StopSma1R, StopSma2R);
 
     SendNotification(initMessage);
     return 0;
