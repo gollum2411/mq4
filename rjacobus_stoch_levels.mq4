@@ -27,6 +27,9 @@ input double    MaxSpreadInPips = 3;
 
 input double    RiskPerTrade = 0.01;
 
+const double StochLow = 30;
+const double StochHigh = 70;
+
 bool isStopValid(double entry, double stop) {
     double stopInPips = MathAbs(entry - stop) / normalizeDigits();
     return stopInPips >= MinimumStopInPips;
@@ -130,19 +133,57 @@ double getFastSma() {
     return iMA(NULL, Period(), FastSma, 0, MODE_SMA, PRICE_CLOSE, 0);
 }
 
-double getStopSmaFromR(int timesR) {
-    int stop = 0;
-    switch(timesR) {
-    case 1:
-        stop = StopSma1R;
-        break;
-    case 2:
-    default:
-        stop = StopSma2R;
-        break;
+double getStopFromR(int order, double timesR) {
+    if (!OrderSelect(order, SELECT_BY_POS)) {
+        Print("getStopFromR: OrderSelect error: ", GetLastError());
+        return -1;
     }
-    Print("getStopSmaFromR: using ", stop, "SMA");
-    return iMA(NULL, Period(), stop, 0, MODE_SMA, PRICE_CLOSE, 0);
+
+    if (timesR < 0.5) {
+        return OrderStopLoss();
+    }
+
+    Print("getStopFromR: timesR: ", timesR);
+
+    int stopSma = 0;
+    //If R between 0.5 and 1R, move stop loss to half the original distance, to risk 0.5R
+    if (timesR >= 0.5 && timesR < 1) {
+        static bool alreadyMoved = false;
+        double stop = 0;
+        switch(OrderType()) {
+        case OP_BUY:
+            stop = OrderOpenPrice() - MathAbs(OrderOpenPrice() - OrderStopLoss()) / 2;
+            break;
+        case OP_SELL:
+            stop = OrderOpenPrice() + MathAbs(OrderOpenPrice() - OrderStopLoss()) / 2;
+            break;
+        default: break; //fallthrough
+        }
+        if (stop != 0) {
+            Print("getStopFromR: moving stop to risk 0.5R");
+            alreadyMoved = true;
+            return stop;
+        }
+        return -1;
+    }
+    //If current R is between 1 and 2R, move stop loss to secure 0.5R
+    else if (timesR >= 1 && timesR < 2) {
+        if (OrderStopLoss() > OrderOpenPrice())
+            return OrderStopLoss();
+
+        Print( "getStopFromR: moving stop to secure gain at 0.5 R");
+        switch(OrderType()) {
+        case OP_BUY: return OrderOpenPrice() + MathAbs(OrderOpenPrice() - OrderStopLoss()) / 2;
+        case OP_SELL: return OrderOpenPrice() - MathAbs(OrderOpenPrice() - OrderStopLoss()) / 2;
+        default: break; //fallthrough
+        }
+        return -1;
+    } else {
+        //Anything above 2R
+        Print("getStopFromR: moving stop to the ", StopSma2R, " SMA");
+        return iMA(NULL, Period(), StopSma2R, 0, MODE_SMA, PRICE_CLOSE, 0);
+    }
+    return -1;
 }
 
 void getStochShift(double &k, double &d, int shift) {
@@ -242,7 +283,7 @@ void checkCrosses() {
     getStochShift(prevK, prevD, 2);
 
     //bullish
-    if (prevK <= 20 && prevD <= 20 && prevK < prevD && currK > currD)
+    if (prevK <= StochLow && prevD <= StochLow && prevK < prevD && currK > currD)
     {
         if (Ask > getFastSma()) {
             double low = getLow();
@@ -262,7 +303,7 @@ void checkCrosses() {
         return;
     }
 
-    if (prevK >= 80 && prevD >= 80 && prevK > prevD && currK < currD)
+    if (prevK >= StochHigh && prevD >= StochHigh && prevK > prevD && currK < currD)
     {
         if (Bid < getFastSma()) {
             double high = getHigh();
@@ -343,16 +384,16 @@ void trailOrders() {
         }
 
         double R = NormalizeDouble(AccountBalance() * RiskPerTrade, 2);
-        int timesR = int(MathFloor(OrderProfit() / R));
+        double timesR = NormalizeDouble(OrderProfit() / R, 2);
 
         if (timesR < 1) {
             continue;
         }
 
-        double stop = getStopSmaFromR(timesR);
+        double stop = getStopFromR(order, timesR);
         Print("Stop loss = ", OrderStopLoss(), ", Stop MA = ", stop);
         PrintFormat("R = %f, Open profit = %f", R, OrderProfit());
-        PrintFormat("Ticket %d is at %dR", OrderTicket(), timesR);
+        PrintFormat("Ticket %d is at %.2fR", OrderTicket(), timesR);
 
         Print("Moving stop...");
         if ((type == OP_BUY && stop > OrderStopLoss()) ||
