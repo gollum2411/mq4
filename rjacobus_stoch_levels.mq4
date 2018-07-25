@@ -420,9 +420,11 @@ int OnInit() {
         return -1;
     }
 
-    string initMessage = StringFormat("rjacobus_stoch_levels: %s: BuyAbove=%f SellBelow=%f fastMA=%d StopSma1R=%d StopSma2R=%d",
-        Symbol(), BuyAbove, SellBelow, FastSma, StopSma1R, StopSma2R);
+    string initMessage = StringFormat("rjacobus_stoch_levels: %s: BuyAbove=%f SellBelow=%f "
+                                      "fastMA=%d StopSma2R=%d StochLevels=[%f,%f]",
+        Symbol(), BuyAbove, SellBelow, FastSma, StopSma2R, StochLow, StochHigh);
 
+    Print(initMessage);
     SendNotification(initMessage);
     return 0;
 }
