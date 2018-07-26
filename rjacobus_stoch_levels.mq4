@@ -133,6 +133,14 @@ double getFastSma() {
     return iMA(NULL, Period(), FastSma, 0, MODE_SMA, PRICE_CLOSE, 0);
 }
 
+bool ticketInArrayUpTo(int ticket, int &array[], int maxIdx) {
+    for (int t = 0; t < maxIdx; t++) {
+        if (array[t] == ticket)
+            return true;
+    }
+    return false;
+}
+
 double getStopFromR(int order, double timesR) {
     if (!OrderSelect(order, SELECT_BY_POS)) {
         Print("getStopFromR: OrderSelect error: ", GetLastError());
@@ -148,7 +156,13 @@ double getStopFromR(int order, double timesR) {
     int stopSma = 0;
     //If R between 0.5 and 1R, move stop loss to half the original distance, to risk 0.5R
     if (timesR >= 0.5 && timesR < 1) {
-        static bool alreadyMoved = false;
+        static int ticketStopMoved[2048];
+        static int ticketIdx = 0;
+
+        if (ticketInArrayUpTo(order, ticketStopMoved, ticketIdx)) {
+            return OrderStopLoss();
+        }
+
         double stop = 0;
         switch(OrderType()) {
         case OP_BUY:
@@ -159,9 +173,11 @@ double getStopFromR(int order, double timesR) {
             break;
         default: break; //fallthrough
         }
+
+        //if valid stop picked
         if (stop != 0) {
-            Print("getStopFromR: moving stop to risk 0.5R");
-            alreadyMoved = true;
+            Print("getStopFromR: moving stop to risk 0.5R at most");
+            ticketStopMoved[ticketIdx++] = order;
             return stop;
         }
         return -1;
@@ -386,7 +402,7 @@ void trailOrders() {
         double R = NormalizeDouble(AccountBalance() * RiskPerTrade, 2);
         double timesR = NormalizeDouble(OrderProfit() / R, 2);
 
-        if (timesR < 1) {
+        if (timesR < 0) {
             continue;
         }
 
