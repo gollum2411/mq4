@@ -133,12 +133,13 @@ double getFastSma() {
     return iMA(NULL, Period(), FastSma, 0, MODE_SMA, PRICE_CLOSE, 0);
 }
 
-bool ticketInArrayUpTo(int ticket, int &array[], int maxIdx) {
-    for (int t = 0; t < maxIdx; t++) {
-        if (array[t] == ticket)
-            return true;
+double originalStopLoss(int ticket) {
+    for (int i = 0; i < OrderIdx; i++) {
+        if (ticket == Orders[i].ticket) {
+            return Orders[i].stop;
+        }
     }
-    return false;
+    return -1;
 }
 
 double getStopFromR(int order, double timesR) {
@@ -151,53 +152,73 @@ double getStopFromR(int order, double timesR) {
         return OrderStopLoss();
     }
 
-    Print("getStopFromR: timesR: ", timesR);
+    bool isLong = OrderType() == OP_BUY;
+    bool isShort = OrderType() == OP_SELL;
+    int ticket = OrderTicket();
+    int type = OrderType();
+    double currStopLoss = OrderStopLoss();
+    double originalStopLoss = originalStopLoss(ticket);
+    double openPrice = OrderOpenPrice();
+
+    if (!isLong && !isShort)
+        return -1;
+
+    PrintFormat("getStopFromR: ticket %d: timesR = %f", ticket, timesR);
+
 
     int stopSma = 0;
     //If R between 0.5 and 1R, move stop loss to half the original distance, to risk 0.5R
     if (timesR >= 0.5 && timesR < 1) {
-        static int ticketStopMoved[2048];
-        static int ticketIdx = 0;
 
-        if (ticketInArrayUpTo(order, ticketStopMoved, ticketIdx)) {
-            return OrderStopLoss();
+        bool isStopGood = ((isLong && currStopLoss > originalStopLoss) ||
+                           (isShort && currStopLoss < originalStopLoss));
+
+        if (!isStopGood) {
+            return currStopLoss;
         }
 
-        double stop = 0;
-        switch(OrderType()) {
-        case OP_BUY:
-            stop = OrderOpenPrice() - MathAbs(OrderOpenPrice() - OrderStopLoss()) / 2;
-            break;
-        case OP_SELL:
-            stop = OrderOpenPrice() + MathAbs(OrderOpenPrice() - OrderStopLoss()) / 2;
-            break;
-        default: break; //fallthrough
+        PrintFormat("getStopFromR: ticket %d: moving stop to risk 0.5R at most",
+                    ticket);
+        double stop = -1;
+        if (isLong) {
+            stop = openPrice - MathAbs(OrderOpenPrice() - OrderStopLoss()) / 2;
+        } else if (isShort) {
+            stop = openPrice + MathAbs(OrderOpenPrice() - OrderStopLoss()) / 2;
+        } else {
+            return -1;
         }
 
-        //if valid stop picked
-        if (stop != 0) {
-            Print("getStopFromR: moving stop to risk 0.5R at most");
-            ticketStopMoved[ticketIdx++] = order;
+    return stop;
+
+    }
+
+    //If current R is between 1 and 2R, move stop loss to secure 0.5R
+    else if (timesR >= 1 && timesR < 2) {
+        bool isStopValid = ((isLong && currStopLoss > openPrice) ||
+                            (isShort && currStopLoss < openPrice));
+        if (!isStopValid) {
+            return currStopLoss;
+        }
+
+        PrintFormat("getStopFromR: ticket %d: moving stop to secure gain at 0.5 R",
+                    ticket);
+        if (isLong) {
+            return openPrice + MathAbs(openPrice - currStopLoss) / 2;
+        } else if (isShort) {
+            return openPrice - MathAbs(openPrice - currStopLoss) / 2;
+        }
+        return -1;
+
+    } else {
+        //Anything above 2R
+        PrintFormat("getStopFromR: ticket %d: moving stop to the %d SMA",
+                    ticket, StopSma2R);
+        double stop = iMA(NULL, Period(), StopSma2R, 0, MODE_SMA, PRICE_CLOSE, 0);
+        if ((isLong && stop > currStopLoss) ||
+            (isShort && stop < currStopLoss)) {
             return stop;
         }
         return -1;
-    }
-    //If current R is between 1 and 2R, move stop loss to secure 0.5R
-    else if (timesR >= 1 && timesR < 2) {
-        if (OrderStopLoss() > OrderOpenPrice())
-            return OrderStopLoss();
-
-        Print( "getStopFromR: moving stop to secure gain at 0.5 R");
-        switch(OrderType()) {
-        case OP_BUY: return OrderOpenPrice() + MathAbs(OrderOpenPrice() - OrderStopLoss()) / 2;
-        case OP_SELL: return OrderOpenPrice() - MathAbs(OrderOpenPrice() - OrderStopLoss()) / 2;
-        default: break; //fallthrough
-        }
-        return -1;
-    } else {
-        //Anything above 2R
-        Print("getStopFromR: moving stop to the ", StopSma2R, " SMA");
-        return iMA(NULL, Period(), StopSma2R, 0, MODE_SMA, PRICE_CLOSE, 0);
     }
     return -1;
 }
@@ -390,6 +411,7 @@ void trailOrders() {
             continue;
         }
 
+        double currStopLoss = OrderStopLoss();
         int type = OrderType();
         if (OrderSymbol() != Symbol()) {
             continue;
@@ -407,24 +429,34 @@ void trailOrders() {
         }
 
         double stop = getStopFromR(order, timesR);
-        Print("Stop loss = ", OrderStopLoss(), ", Stop MA = ", stop);
-        PrintFormat("R = %f, Open profit = %f", R, OrderProfit());
-        PrintFormat("Ticket %d is at %.2fR", OrderTicket(), timesR);
-
-        Print("Moving stop...");
-        if ((type == OP_BUY && stop > OrderStopLoss()) ||
-           (type == OP_SELL && stop < OrderStopLoss())) {
-            if (!OrderModify(OrderTicket(), OrderOpenPrice(), stop, OrderTakeProfit(), 0, Blue)) {
-                SendNotification("OrderModify failed for ticket " + string(OrderTicket()) +
-                                 ", error = " + string(GetLastError()));
-            }
+        if (stop == -1) {
+            Print("error from getStopFromR");
             continue;
+        }
+
+        //suggested stop would go against us
+        if ((type == OP_BUY && stop <= currStopLoss) ||
+            (type == OP_SELL && stop >= currStopLoss)) {
+            continue;
+        }
+
+        PrintFormat("Ticket %d: open profit = %f, %.2fR", OrderTicket(),
+                    OrderProfit(), timesR);
+        PrintFormat("Ticket %d: current stop = %f, moving stop to %f",
+                    OrderTicket(), OrderStopLoss(), stop);
+        Print("Moving stop...");
+        if (!OrderModify(OrderTicket(), OrderOpenPrice(), stop, OrderTakeProfit(), 0, Blue)) {
+            SendNotification("OrderModify failed for ticket " + string(OrderTicket()) +
+                             ", error = " + string(GetLastError()));
         }
     }
 }
 
 int OnInit() {
     Print("OnInit: getExchangeRate: ", getExchangeRate());
+
+    Print("Resetting file...");
+    FileDelete(Symbol() + "_orders.txt");
 
     if (!IsTradeAllowed()) {
         return 0;
@@ -463,10 +495,15 @@ bool isNewCandle()
 
 void OnTick() {
     Comment("rjacobus_stoch_levels " + Symbol());
-    //Invalid conditions
 
     if (!isNewCandle()) {
         return;
+    }
+
+    static int lastOrderCount = OrdersTotal();
+    if (lastOrderCount != OrdersTotal()) {
+        lastOrderCount = OrdersTotal();
+        updateOrders();
     }
 
     trailOrders();

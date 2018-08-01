@@ -1,3 +1,5 @@
+#include <stdlib.mqh>
+
 double getVolume(double minVolume, double riskPercentage) {
     double volume = NormalizeDouble(((AccountFreeMargin()/100) * riskPercentage) /1000.0,2);
     volume = (volume < minVolume ? minVolume : volume);
@@ -65,4 +67,53 @@ Candle newCandle(int n) {
 
     return candle;
 }
+
+struct Order {
+    int ticket;
+    double open;
+    double stop;
+};
+
+
+static Order Orders[1024];
+static int OrderIdx = 0;
+
+bool isOrderNew(int ticket) {
+    for (int i = 0; i < OrderIdx; i++) {
+        Order order = Orders[i];
+        if (order.ticket == ticket) {
+            return false;
+        }
+    }
+    return true;
+}
+
+void addOrder(int ticket) {
+    if (!OrderSelect(ticket, SELECT_BY_TICKET)) {
+        return;
+    }
+    Order order;
+    order.ticket = ticket;
+    order.open = OrderOpenPrice();
+    order.stop = OrderStopLoss();
+    Orders[OrderIdx++] = order;
+    PrintFormat("addOrder: ticket: %d, stop: %f", order.ticket, order.stop);
+}
+
+void updateOrders() {
+    for (int i = OrdersTotal()-1; i >= 0; i--){
+        if (!OrderSelect(i, SELECT_BY_POS)) {
+            continue;
+        }
+        if (OrderSymbol() != Symbol())
+            continue;
+
+        if (!isOrderNew(OrderTicket())) {
+            continue;
+        }
+
+        addOrder(OrderTicket());
+    }
+}
+
 
