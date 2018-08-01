@@ -493,8 +493,23 @@ bool isNewCandle()
     return true;
 }
 
+bool isNewMinuteCandle() {
+    static datetime last;
+    datetime curr = iTime(Symbol(), PERIOD_M1, 0);
+    if (curr == last) {
+        return false;
+    }
+
+    last = curr;
+    return true;
+}
+
 void OnTick() {
     Comment("rjacobus_stoch_levels " + Symbol());
+
+    if (isNewMinuteCandle()) {
+        trailOrders();
+    }
 
     if (!isNewCandle()) {
         return;
