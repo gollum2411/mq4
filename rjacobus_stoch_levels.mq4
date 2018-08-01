@@ -508,6 +508,7 @@ void OnTick() {
     Comment("rjacobus_stoch_levels " + Symbol());
 
     if (isNewMinuteCandle()) {
+        updateOrders();
         trailOrders();
     }
 
