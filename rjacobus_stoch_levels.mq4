@@ -181,9 +181,9 @@ double getStopFromR(int order, double timesR) {
                     ticket);
         double stop = -1;
         if (isLong) {
-            stop = openPrice - MathAbs(OrderOpenPrice() - OrderStopLoss()) / 2;
+            stop = openPrice - MathAbs(openPrice - originalStopLoss) / 2;
         } else if (isShort) {
-            stop = openPrice + MathAbs(OrderOpenPrice() - OrderStopLoss()) / 2;
+            stop = openPrice + MathAbs(openPrice - originalStopLoss) / 2;
         } else {
             return -1;
         }
@@ -203,9 +203,9 @@ double getStopFromR(int order, double timesR) {
         PrintFormat("getStopFromR: ticket %d: moving stop to secure gain at 0.5 R",
                     ticket);
         if (isLong) {
-            return openPrice + MathAbs(openPrice - currStopLoss) / 2;
+            return openPrice + MathAbs(openPrice - originalStopLoss) / 2;
         } else if (isShort) {
-            return openPrice - MathAbs(openPrice - currStopLoss) / 2;
+            return openPrice - MathAbs(openPrice - originalStopLoss) / 2;
         }
         return -1;
 
