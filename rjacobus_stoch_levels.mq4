@@ -134,7 +134,7 @@ double getFastSma() {
 }
 
 double originalStopLoss(int ticket) {
-    for (int i = 0; i < OrderIdx; i++) {
+    for (int i = 0; i < ArraySize(Orders); i++) {
         if (ticket == Orders[i].ticket) {
             return Orders[i].stop;
         }
@@ -157,13 +157,14 @@ double getStopFromR(int order, double timesR) {
     int ticket = OrderTicket();
     int type = OrderType();
     double currStopLoss = OrderStopLoss();
-    double originalStopLoss = originalStopLoss(ticket);
+    double originalStopLoss = NormalizeDouble(originalStopLoss(OrderTicket()), Digits);
     double openPrice = OrderOpenPrice();
 
     if (!isLong && !isShort)
         return -1;
 
-    PrintFormat("getStopFromR: ticket %d: timesR = %f", ticket, timesR);
+    PrintFormat("getStopFromR: ticket %d: original stop loss = %f, timesR = %f",
+                ticket, originalStopLoss, timesR);
 
 
     int stopSma = 0;
@@ -259,7 +260,7 @@ int placeBuyOrder(string comment) {
     Print("abs(entry - stop) = ", MathAbs(fast - stop) / normalizeDigits());
     int ret = OrderSend(Symbol(), OP_BUYSTOP, volume,
                         fast, 3, stop, target,
-                        "", MAGIC);
+                        StringFormat("%f", stop), MAGIC);
     if (ret == -1) {
         SendNotification("Placing buy stop order failed: " + string(GetLastError()));
         return -1;
@@ -291,7 +292,7 @@ int placeSellOrder(string comment) {
     Print("abs(entry - stop) = ", MathAbs(fast - stop) / normalizeDigits());
     int ret = OrderSend(Symbol(), OP_SELLSTOP, volume,
                         fast, 3, stop, target,
-                        "", MAGIC);
+                        StringFormat("%f", stop), MAGIC);
     if (ret == -1) {
         SendNotification("Placing sell stop order failed: " + string(GetLastError()));
         return -1;
@@ -325,12 +326,11 @@ void checkCrosses() {
         if (Ask > getFastSma()) {
             double low = getLow();
             stop = Bid - EmaToSwingStopFactor * (Bid - low);
-            if (buy(stop, "buy stoch cross")) {
+            if (buy(stop, StringFormat("%f", stop))) {
                 closePendingOrders();
             }
             return;
         }
-        Print("bullish cross: %k = ", currK, " %%d = ", currD);
         ticket = placeBuyOrder("Place buy order: stoch cross");
         if (ticket == -1) {
             return;
@@ -345,12 +345,11 @@ void checkCrosses() {
         if (Bid < getFastSma()) {
             double high = getHigh();
             stop = Ask + EmaToSwingStopFactor * (high - Ask);
-            if (sell(stop, "sell stoch cross")) {
+            if (sell(stop, StringFormat("%f", stop))) {
                 closePendingOrders();
             }
             return;
         }
-        Print("bearish cross: %k = ", currK, " %%d = ", currD);
         ticket = placeSellOrder("Place sell order: stoch cross");
         if (ticket == -1) {
             return;
@@ -455,11 +454,12 @@ void trailOrders() {
 int OnInit() {
     Print("OnInit: getExchangeRate: ", getExchangeRate());
 
-    Print("Resetting file...");
-    FileDelete(Symbol() + "_orders.txt");
-
     if (!IsTradeAllowed()) {
         return 0;
+    }
+
+    if (FileIsExist(ordersFileName())) {
+        Print("Found orders file...");
     }
 
     if (BuyAbove == 0 || SellBelow == 0) {
@@ -516,8 +516,9 @@ void OnTick() {
         return;
     }
 
-    static int lastOrderCount = OrdersTotal();
-    if (lastOrderCount != OrdersTotal()) {
+    static int lastOrderCount = ordersForSymbol(Symbol());
+    if (lastOrderCount != ordersForSymbol(Symbol())) {
+        PrintFormat("New orders detected, updating orders...");
         lastOrderCount = OrdersTotal();
         updateOrders();
     }
