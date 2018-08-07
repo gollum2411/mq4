@@ -1,6 +1,7 @@
 #include <stdlib.mqh>
 
 #include "rjacobus.mqh"
+#include "rjacobus_fade_range.mqh"
 
 #property strict
 #property copyright "Roberto Jacobus"
@@ -33,44 +34,6 @@ const double StochHigh = 70;
 bool isStopValid(double entry, double stop) {
     double stopInPips = MathAbs(entry - stop) / normalizeDigits();
     return stopInPips >= MinimumStopInPips;
-}
-
-bool buy(double stop, string comment="") {
-    if (!isBuyAllowed()) {
-        Print("Buy not allowed");
-        return false;
-    }
-
-    if (!isStopValid(Ask, stop)) {
-        Print("Aborting buy, stop too narrow");
-        return false;
-    }
-
-    double spread = Ask - Bid;
-    stop -= spread;
-
-    double target = Bid + TPFactor * MathAbs(Bid - stop);
-    double volume = _getVolume(Ask, stop);
-    return buy(comment, MAGIC, stop, target, volume);
-}
-
-bool sell(double stop, string comment="") {
-    if (!isSellAllowed()) {
-        Print("Sell not allowed");
-        return false;
-    }
-
-    if (!isStopValid(Bid, stop)) {
-        Print("Aborting sell, stop too narrow");
-        return false;
-    }
-
-    double spread = Ask - Bid;
-    stop += spread;
-
-    double target = Ask - TPFactor * (MathAbs(Ask - stop));
-    double volume = _getVolume(Bid, stop);
-    return sell(comment, MAGIC, stop, target, volume);
 }
 
 double normalizeDigits() {
@@ -129,9 +92,6 @@ double _getVolume(double price, double stop) {
     return lots;
 }
 
-double getFastSma() {
-    return iMA(NULL, Period(), FastSma, 0, MODE_SMA, PRICE_CLOSE, 0);
-}
 
 double originalStopLoss(int ticket) {
     for (int i = 0; i < ArraySize(Orders); i++) {
@@ -229,13 +189,6 @@ void getStochShift(double &k, double &d, int shift) {
     d = iStochastic(Symbol(), Period(), 5, 3, 3, MODE_SMA, 0, MODE_SIGNAL, shift);
 }
 
-bool isBuyAllowed() {
-    return Ask > BuyAbove;
-}
-
-bool isSellAllowed() {
-    return Bid < SellBelow;
-}
 
 int placeBuyOrder(string comment) {
     if (!isBuyAllowed()) {
@@ -326,7 +279,7 @@ void checkCrosses() {
         if (Ask > getFastSma()) {
             double low = getLow();
             stop = Bid - EmaToSwingStopFactor * (Bid - low);
-            if (buy(stop, StringFormat("%f", stop))) {
+            if (buy(stop, StringFormat("%f", stop)) != -1) {
                 closePendingOrders();
             }
             return;
@@ -345,7 +298,7 @@ void checkCrosses() {
         if (Bid < getFastSma()) {
             double high = getHigh();
             stop = Ask + EmaToSwingStopFactor * (high - Ask);
-            if (sell(stop, StringFormat("%f", stop))) {
+            if (sell(stop, StringFormat("%f", stop)) != -1) {
                 closePendingOrders();
             }
             return;
@@ -539,5 +492,7 @@ void OnTick() {
 
 
     checkCrosses();
+
+    checkRangeFade();
 }
 

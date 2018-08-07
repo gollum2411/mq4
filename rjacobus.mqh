@@ -1,4 +1,66 @@
+#ifndef RJACOBUS_MQH
+#define RJACOBUS_MQH
+
 #include <stdlib.mqh>
+
+int buy(double stop, string comment="") {
+    if (!isBuyAllowed()) {
+        Print("Buy not allowed");
+        return -1;
+    }
+
+    return buyNoChecks(stop, comment);
+
+}
+
+int buyNoChecks(double stop, string comment="") {
+    if (!isStopValid(Ask, stop)) {
+        Print("Aborting buy, stop too narrow");
+        return -1;
+    }
+
+    double spread = Ask - Bid;
+    stop -= spread;
+
+    double target = Bid + TPFactor * MathAbs(Bid - stop);
+    double volume = _getVolume(Ask, stop);
+    return buy(comment, MAGIC, stop, target, volume);
+}
+
+int sell(double stop, string comment="") {
+    if (!isSellAllowed()) {
+        Print("Sell not allowed");
+        return -1;
+    }
+
+    return sellNoChecks(stop, comment);
+}
+
+int sellNoChecks(double stop, string comment="") {
+    if (!isStopValid(Bid, stop)) {
+        Print("Aborting sell, stop too narrow");
+        return -1;
+    }
+
+    double spread = Ask - Bid;
+    stop += spread;
+
+    double target = Ask - TPFactor * (MathAbs(Ask - stop));
+    double volume = _getVolume(Bid, stop);
+    return sell(comment, MAGIC, stop, target, volume);
+}
+
+bool isBuyAllowed() {
+    return Ask > BuyAbove;
+}
+
+bool isSellAllowed() {
+    return Bid < SellBelow;
+}
+
+double getFastSma() {
+    return iMA(NULL, Period(), FastSma, 0, MODE_SMA, PRICE_CLOSE, 0);
+}
 
 double getVolume(double minVolume, double riskPercentage) {
     double volume = NormalizeDouble(((AccountFreeMargin()/100) * riskPercentage) /1000.0,2);
@@ -6,22 +68,20 @@ double getVolume(double minVolume, double riskPercentage) {
     return volume;
 }
 
-bool buy(string comment, int magic, double stop, double target, double volume) {
+int buy(string comment, int magic, double stop, double target, double volume) {
     int ticket = OrderSend(Symbol(), OP_BUY, volume, Ask, 3, stop, target, comment, magic);
     if (ticket == -1) {
         Print(ErrorDescription(GetLastError()));
-        return false;
     }
-    return true;
+    return ticket;
 }
 
-bool sell(string comment, int magic, double stop, double target, double volume) {
+int sell(string comment, int magic, double stop, double target, double volume) {
     int ticket = OrderSend(Symbol(), OP_SELL, volume, Bid, 3, stop, target, comment, magic);
     if (ticket == -1) {
         Print(ErrorDescription(GetLastError()));
-        return false;
     }
-    return true;
+    return ticket;
 }
 
 //Returns the number of open orders for sym
@@ -263,3 +323,4 @@ void updateOrders() {
     return;
 }
 
+#endif //RJACOBUS_MQH
