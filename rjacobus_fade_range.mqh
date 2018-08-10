@@ -35,7 +35,7 @@ void checkRangeFade() {
     Candle candle = newCandle(1); //last candle
 
     //Sell top of range
-    if (!executedFadeShort && candle.low < BuyAbove && candle.high > BuyAbove) {
+    if (!executedFadeShort && candle.low < BuyAbove && candle.close > BuyAbove) {
         int ticket = fadeTopOfRange();
         if (ticket == -1) {
             PrintFormat("fadeTopOfRange failed");
@@ -49,7 +49,7 @@ void checkRangeFade() {
     }
 
     //Buy bottom of range
-    if (!executedFadeLong && candle.low < SellBelow && candle.high > SellBelow) {
+    if (!executedFadeLong && candle.close < SellBelow && candle.high > SellBelow) {
         int ticket = fadeBottomOfRange();
         if (ticket == -1) {
             PrintFormat("fadeBottomOfRange failed");

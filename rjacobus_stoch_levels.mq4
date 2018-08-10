@@ -114,11 +114,13 @@ double getStopFromR(int order, double timesR) {
 
     bool isLong = OrderType() == OP_BUY;
     bool isShort = OrderType() == OP_SELL;
+    double currPrice = isLong ? Ask : Bid;
     int ticket = OrderTicket();
     int type = OrderType();
     double currStopLoss = OrderStopLoss();
     double originalStopLoss = NormalizeDouble(originalStopLoss(OrderTicket()), Digits);
     double openPrice = OrderOpenPrice();
+    double openProfit = OrderProfit();
 
     if (!isLong && !isShort)
         return -1;
@@ -127,46 +129,34 @@ double getStopFromR(int order, double timesR) {
                 ticket, originalStopLoss, timesR);
 
 
+    double diffPoints = MathAbs(openPrice - currPrice);
+    double halfR = AccountBalance() * RiskPerTrade / 2; //0.5R
+    double targetStopShift = halfR * diffPoints / openProfit;
+
+    PrintFormat("getStopFromR: openProfit=%f, diffPoints=%f, halfR=%f, targetStopShift=%f",
+                openProfit, diffPoints, halfR, targetStopShift);
+
     int stopSma = 0;
     //If R between 0.5 and 1R, move stop loss to half the original distance, to risk 0.5R
     if (timesR >= 0.5 && timesR < 1) {
-
-        bool isStopGood = ((isLong && currStopLoss > originalStopLoss) ||
-                           (isShort && currStopLoss < originalStopLoss));
-
-        if (!isStopGood) {
-            return currStopLoss;
-        }
-
         PrintFormat("getStopFromR: ticket %d: moving stop to risk 0.5R at most",
                     ticket);
-        double stop = -1;
         if (isLong) {
-            stop = openPrice - MathAbs(openPrice - originalStopLoss) / 2;
+            return openPrice - targetStopShift;
         } else if (isShort) {
-            stop = openPrice + MathAbs(openPrice - originalStopLoss) / 2;
-        } else {
-            return -1;
+            return openPrice + targetStopShift;
         }
-
-    return stop;
-
+        return -1;
     }
 
     //If current R is between 1 and 2R, move stop loss to secure 0.5R
     else if (timesR >= 1 && timesR < 2) {
-        bool isStopValid = ((isLong && currStopLoss > openPrice) ||
-                            (isShort && currStopLoss < openPrice));
-        if (!isStopValid) {
-            return currStopLoss;
-        }
-
         PrintFormat("getStopFromR: ticket %d: moving stop to secure gain at 0.5 R",
                     ticket);
         if (isLong) {
-            return openPrice + MathAbs(openPrice - originalStopLoss) / 2;
+            return openPrice + targetStopShift;
         } else if (isShort) {
-            return openPrice - MathAbs(openPrice - originalStopLoss) / 2;
+            return openPrice - targetStopShift;
         }
         return -1;
 
