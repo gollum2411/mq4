@@ -149,8 +149,8 @@ double getStopFromR(int order, double timesR) {
         return -1;
     }
 
-    //If current R is between 1 and 2R, move stop loss to secure 0.5R
-    else if (timesR >= 1 && timesR < 2) {
+    //If current R is between 1 and 1.5R, move stop loss to secure 0.5R
+    else if (timesR >= 1 && timesR < 1.5) {
         PrintFormat("getStopFromR: ticket %d: moving stop to secure gain at 0.5 R",
                     ticket);
         if (isLong) {
@@ -160,6 +160,15 @@ double getStopFromR(int order, double timesR) {
         }
         return -1;
 
+    } else if (timesR >= 1.5 && timesR < 2) {
+        PrintFormat("getStopFromR: ticket %d: moving stop to secure gain at 1R",
+                    ticket);
+        if (isLong) {
+            return openPrice + targetStopShift*2;
+        } else if (isShort) {
+            return openPrice - targetStopShift*2;
+        }
+        return -1;
     } else {
         //Anything above 2R
         PrintFormat("getStopFromR: ticket %d: moving stop to the %d SMA",
